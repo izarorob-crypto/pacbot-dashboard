@@ -9,32 +9,59 @@
   body { margin: 0; padding: 16px; background: #0b0f19; color: #e2e8f0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
   h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
   .updated { font-size: 12px; color: #64748b; margin-bottom: 16px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .sectionLabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin: 18px 0 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
   .card { background: #131a2b; border-radius: 12px; padding: 14px; }
-  .card .label { font-size: 12px; color: #94a3b8; margin: 0 0 4px; }
+  .card .label { font-size: 11px; color: #94a3b8; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.03em; }
   .card .value { font-size: 22px; font-weight: 600; margin: 0; }
+  .card .sub { font-size: 11px; color: #64748b; margin: 4px 0 0; }
   .pos { color: #86efac; } .neg { color: #fb7185; } .neutral { color: #a78bfa; }
   .panel { background: #131a2b; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
   .panel h2 { font-size: 14px; font-weight: 500; margin: 0 0 10px; color: #e2e8f0; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   td { padding: 6px 0; border-top: 1px solid #1e293b; }
   .muted { color: #94a3b8; }
-  canvas { max-height: 180px; }
+  canvas { max-height: 200px; }
   #err { display:none; color:#fb7185; font-size:13px; }
+  .gaugeWrap { margin-bottom: 4px; }
+  .gaugeLabel { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 6px; }
+  .gaugeValue { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  .gaugeBar { height: 8px; border-radius: 4px; background: #1e293b; overflow: hidden; }
+  .gaugeFill { height: 100%; border-radius: 4px; }
+  .chartsGrid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 640px) { .chartsGrid { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
 <body>
 <h1>PacBot</h1>
 <p class="updated" id="updated">laden...</p>
 <p id="err">Kon data.json niet laden - probeer over een paar minuten opnieuw (het script schrijft elke 3 min een update).</p>
+
+<div class="sectionLabel">All-time</div>
+<div class="grid" id="kpiCards"></div>
+
+<div class="sectionLabel">Account nu</div>
 <div class="grid" id="cards"></div>
+
+<div class="panel">
+  <h2>Prestatie-gauges (all-time)</h2>
+  <div class="grid" id="gauges"></div>
+</div>
+
+<div class="chartsGrid">
+  <div class="panel"><h2>Per symbool (gerealiseerde P/L)</h2><canvas id="symbolChart"></canvas></div>
+  <div class="panel"><h2>Equity-curve (cumulatieve P/L)</h2><canvas id="equityChart"></canvas></div>
+</div>
+
+<div class="panel"><h2>Sluitreden-verdeling</h2><table id="reasonTable"></table></div>
 <div class="panel"><h2>Open posities</h2><table id="posTable"></table></div>
 <div class="panel"><h2>Recente activiteit</h2><table id="closedTable"></table></div>
 <div class="panel"><h2>Recente P/L</h2><canvas id="chart"></canvas></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-function fmt(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+function fmt(n) { n = n || 0; return (Math.round(n * 100) / 100).toFixed(2); }
 function pnlClass(n) { return n > 0 ? "pos" : (n < 0 ? "neg" : "neutral"); }
+function gaugeColor(pct) { return pct >= 55 ? "#86efac" : (pct >= 40 ? "#fbbf24" : "#fb7185"); }
 
 fetch("data.json?t=" + Date.now())
   .then(function(r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
@@ -43,6 +70,24 @@ fetch("data.json?t=" + Date.now())
 
 function render(d) {
   document.getElementById("updated").textContent = "bijgewerkt: " + d.updated;
+
+  var k = d.kpis || { netPnlAllTime: 0, totalTrades: 0, winRate: 0, profitFactor: 0 };
+  var wins = (d.recentClosed || []).length; // fallback, overschreven hieronder indien breakdown bekend
+  var reasonBd = d.reasonBreakdown || [];
+  var winsCount = 0, lossCount = 0;
+  reasonBd.forEach(function(r) {
+    if (r.pnl > 0) { winsCount += r.count; } else { lossCount += r.count; }
+  });
+
+  var kpiCards = [
+    { label: "Net P/L (all-time)", value: fmt(k.netPnlAllTime), cls: pnlClass(k.netPnlAllTime) },
+    { label: "Trades win/verlies", value: winsCount + " / " + lossCount, sub: k.totalTrades + " totaal", cls: "" },
+    { label: "Winrate (all-time)", value: fmt(k.winRate) + "%", cls: (k.winRate >= 50 ? "pos" : "neg") },
+    { label: "Profit factor", value: fmt(k.profitFactor), cls: (k.profitFactor >= 1 ? "pos" : "neg") }
+  ];
+  document.getElementById("kpiCards").innerHTML = kpiCards.map(function(c) {
+    return '<div class="card"><p class="label">' + c.label + '</p><p class="value ' + c.cls + '">' + c.value + '</p>' + (c.sub ? '<p class="sub">' + c.sub + '</p>' : '') + '</div>';
+  }).join("");
 
   var a = d.account || {};
   var cards = [
@@ -54,6 +99,28 @@ function render(d) {
   document.getElementById("cards").innerHTML = cards.map(function(c) {
     return '<div class="card"><p class="label">' + c.label + '</p><p class="value ' + c.cls + '">' + c.value + "</p></div>";
   }).join("");
+
+  // Gauges: winrate, profit-factor genormaliseerd naar een 0-100% balk (pf van 2.0 = 100%), grootste winst-symbool-aandeel
+  var pfPct = Math.min(100, (k.profitFactor / 2.0) * 100);
+  var topSymbolShare = 0;
+  if (d.symbolBreakdown && d.symbolBreakdown.length) {
+    var sorted = d.symbolBreakdown.slice().sort(function(x, y) { return y.pnl - x.pnl; });
+    topSymbolShare = sorted[0];
+  }
+  var gauges = [
+    { label: "Winrate all-time", pct: k.winRate, text: fmt(k.winRate) + "%" },
+    { label: "Profit factor (schaal tot 2.0)", pct: pfPct, text: fmt(k.profitFactor) },
+    { label: "Beste symbool: " + (topSymbolShare ? topSymbolShare.symbol : "-"), pct: topSymbolShare ? topSymbolShare.winRate : 0, text: topSymbolShare ? (fmt(topSymbolShare.pnl) + " (" + topSymbolShare.winRate + "% wr)") : "-" }
+  ];
+  document.getElementById("gauges").innerHTML = gauges.map(function(g) {
+    var pct = Math.max(0, Math.min(100, g.pct));
+    return '<div class="gaugeWrap"><p class="gaugeLabel">' + g.label + '</p><p class="gaugeValue">' + g.text + '</p><div class="gaugeBar"><div class="gaugeFill" style="width:' + pct + '%;background:' + gaugeColor(pct) + '"></div></div></div>';
+  }).join("");
+
+  var reasonRows = reasonBd.map(function(r) {
+    return "<tr><td>" + r.reason + "</td><td class=\"muted\">" + r.count + "x</td><td style=\"text-align:right\" class=\"" + pnlClass(r.pnl) + "\">" + fmt(r.pnl) + "</td></tr>";
+  }).join("");
+  document.getElementById("reasonTable").innerHTML = reasonRows || '<tr><td class="muted">nog geen sluitingen</td></tr>';
 
   var posRows = (d.openPositions || []).map(function(p) {
     return "<tr><td>" + p.symbol + " " + p.direction + "</td><td>" + p.lot + "</td><td style=\"text-align:right\" class=\"" + pnlClass(p.pnl) + "\">" + fmt(p.pnl) + "</td></tr>";
@@ -74,6 +141,34 @@ function render(d) {
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } }
+      }
+    }
+  });
+
+  var symLabels = (d.symbolBreakdown || []).map(function(s) { return s.symbol; });
+  var symValues = (d.symbolBreakdown || []).map(function(s) { return s.pnl; });
+  new Chart(document.getElementById("symbolChart"), {
+    type: "bar",
+    data: { labels: symLabels, datasets: [{ data: symValues, backgroundColor: symValues.map(function(v) { return v >= 0 ? "#86efac" : "#fb7185"; }) }] },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } }
+      }
+    }
+  });
+
+  var eqLabels = (d.equityCurve || []).map(function(e, i) { return i; });
+  var eqValues = (d.equityCurve || []).map(function(e) { return e.cum; });
+  new Chart(document.getElementById("equityChart"), {
+    type: "line",
+    data: { labels: eqLabels, datasets: [{ data: eqValues, borderColor: "#7dd3fc", backgroundColor: "rgba(125,211,252,0.1)", fill: true, pointRadius: 0, tension: 0.15 }] },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
         y: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } }
       }
     }
