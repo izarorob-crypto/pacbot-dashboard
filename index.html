@@ -53,10 +53,10 @@
   <div class="panel"><h2>Equity-curve (cumulatieve P/L)</h2><canvas id="equityChart"></canvas></div>
 </div>
 
+<div class="panel"><h2>Dagelijkse P/L</h2><canvas id="dailyChart"></canvas></div>
 <div class="panel"><h2>Sluitreden-verdeling</h2><table id="reasonTable"></table></div>
 <div class="panel"><h2>Open posities</h2><table id="posTable"></table></div>
 <div class="panel"><h2>Recente activiteit</h2><table id="closedTable"></table></div>
-<div class="panel"><h2>Recente P/L</h2><canvas id="chart"></canvas></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
 function fmt(n) { n = n || 0; return (Math.round(n * 100) / 100).toFixed(2); }
@@ -132,11 +132,11 @@ function render(d) {
   }).join("");
   document.getElementById("closedTable").innerHTML = closedRows || '<tr><td class="muted">nog geen recente sluitingen</td></tr>';
 
-  var labels = (d.recentClosed || []).map(function(c) { return c.symbol; }).reverse();
-  var values = (d.recentClosed || []).map(function(c) { return c.pnl; }).reverse();
-  new Chart(document.getElementById("chart"), {
+  var dayLabels = (d.dailyPnl || []).map(function(x) { return x.date.replace(/^\d{4}\./, ""); });
+  var dayValues = (d.dailyPnl || []).map(function(x) { return x.pnl; });
+  new Chart(document.getElementById("dailyChart"), {
     type: "bar",
-    data: { labels: labels, datasets: [{ data: values, backgroundColor: values.map(function(v) { return v >= 0 ? "#86efac" : "#fb7185"; }) }] },
+    data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? "#86efac" : "#fb7185"; }) }] },
     options: {
       plugins: { legend: { display: false } },
       scales: {
