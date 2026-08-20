@@ -55,7 +55,7 @@
   <div class="panel"><h2>Per sessie (Asia/London/London-NY/NY)</h2><canvas id="sessionChart"></canvas></div>
 </div>
 
-<div class="panel"><h2>Dagelijkse P/L</h2><canvas id="dailyChart"></canvas></div>
+<div class="panel"><h2>Wekelijkse P/L</h2><canvas id="weeklyChart"></canvas></div>
 <div class="panel"><h2>Sluitreden-verdeling</h2><table id="reasonTable"></table></div>
 <div class="panel"><h2>Open posities</h2><table id="posTable"></table></div>
 <div class="panel"><h2>Recente activiteit</h2><table id="closedTable"></table></div>
@@ -134,13 +134,17 @@ function render(d) {
   }).join("");
   document.getElementById("closedTable").innerHTML = closedRows || '<tr><td class="muted">nog geen recente sluitingen</td></tr>';
 
-  var dayLabels = (d.dailyPnl || []).map(function(x) { return x.date.replace(/^\d{4}\./, ""); });
-  var dayValues = (d.dailyPnl || []).map(function(x) { return x.pnl; });
-  new Chart(document.getElementById("dailyChart"), {
+  var weekLabels = (d.weeklyPnl || []).map(function(x) { return "wk " + x.weekStart.replace(/^\d{4}\./, "").replace(".", "/"); });
+  var weekValues = (d.weeklyPnl || []).map(function(x) { return x.pnl; });
+  var weekCounts = (d.weeklyPnl || []).map(function(x) { return x.count; });
+  new Chart(document.getElementById("weeklyChart"), {
     type: "bar",
-    data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? "#86efac" : "#fb7185"; }) }] },
+    data: { labels: weekLabels, datasets: [{ data: weekValues, backgroundColor: weekValues.map(function(v) { return v >= 0 ? "#86efac" : "#fb7185"; }) }] },
     options: {
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(item) { return fmt(item.parsed.y) + " (" + weekCounts[item.dataIndex] + " trades)"; } } }
+      },
       scales: {
         x: { ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { display: false } },
         y: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } }
