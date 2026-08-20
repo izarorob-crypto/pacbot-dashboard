@@ -48,9 +48,11 @@
   <div class="grid" id="gauges"></div>
 </div>
 
+<div class="panel"><h2>Equity-curve (cumulatieve P/L)</h2><canvas id="equityChart"></canvas></div>
+
 <div class="chartsGrid">
   <div class="panel"><h2>Per symbool (gerealiseerde P/L)</h2><canvas id="symbolChart"></canvas></div>
-  <div class="panel"><h2>Equity-curve (cumulatieve P/L)</h2><canvas id="equityChart"></canvas></div>
+  <div class="panel"><h2>Per sessie (Asia/London/London-NY/NY)</h2><canvas id="sessionChart"></canvas></div>
 </div>
 
 <div class="panel"><h2>Dagelijkse P/L</h2><canvas id="dailyChart"></canvas></div>
@@ -160,15 +162,42 @@ function render(d) {
     }
   });
 
-  var eqLabels = (d.equityCurve || []).map(function(e, i) { return i; });
+  // d.time = "2026.08.20 23:44:33" (broker-tijd) -> label "20/08 23:44" voor de as,
+  // volledige "2026.08.20 23:44:33" als tooltip (via de callback hieronder).
+  function eqLabel(t) {
+    var m = /^(\d{4})\.(\d{2})\.(\d{2}) (\d{2}):(\d{2})/.exec(t || "");
+    return m ? (m[3] + "/" + m[2] + " " + m[4] + ":" + m[5]) : (t || "");
+  }
+  var eqLabels = (d.equityCurve || []).map(function(e) { return eqLabel(e.time); });
   var eqValues = (d.equityCurve || []).map(function(e) { return e.cum; });
   new Chart(document.getElementById("equityChart"), {
     type: "line",
     data: { labels: eqLabels, datasets: [{ data: eqValues, borderColor: "#7dd3fc", backgroundColor: "rgba(125,211,252,0.1)", fill: true, pointRadius: 0, tension: 0.15 }] },
     options: {
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: function(items) { return items.length ? items[0].label : ""; } } }
+      },
       scales: {
-        x: { display: false },
+        x: { ticks: { color: "#94a3b8", font: { size: 9 }, maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } }
+      }
+    }
+  });
+
+  var sessLabels = (d.sessionBreakdown || []).map(function(s) { return s.session; });
+  var sessCounts = (d.sessionBreakdown || []).map(function(s) { return s.count; });
+  var sessPnl = (d.sessionBreakdown || []).map(function(s) { return s.pnl; });
+  new Chart(document.getElementById("sessionChart"), {
+    type: "bar",
+    data: { labels: sessLabels, datasets: [{ data: sessCounts, backgroundColor: sessPnl.map(function(v) { return v >= 0 ? "#86efac" : "#fb7185"; }) }] },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(item) { return item.parsed.y + " trades, P/L " + fmt(sessPnl[item.dataIndex]); } } }
+      },
+      scales: {
+        x: { ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { display: false } },
         y: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } }
       }
     }
