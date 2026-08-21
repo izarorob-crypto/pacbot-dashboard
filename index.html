@@ -118,25 +118,41 @@ function render(d) {
   // sluitreden-groep - zie de uitgebreide toelichting bij "kpis" in Build-PacBotDashboardSnapshot.
   var winsCount = k.wins || 0, lossCount = k.losses || 0;
 
+  // Reward/risk-ratio (gem. winst t.o.v. gem. verlies) - alleen zinvol als er al verliezende
+  // trades zijn geweest, anders blijft het leeg i.p.v. een misleidende deling-door-nul.
+  var avgWin = k.avgWin || 0, avgLoss = k.avgLoss || 0;
+  var rrText = (avgLoss !== 0) ? (fmt(Math.abs(avgWin / avgLoss)) + ":1 reward/risk") : "";
+
   var kpiCards = [
     { label: "Net P/L (all-time)", value: fmtUsd(k.netPnlAllTime), cls: pnlClass(k.netPnlAllTime) },
     { label: "Win / Loss", value: winsCount + " / " + lossCount, sub: k.totalTrades + " total trades", cls: "" },
     { label: "Win Rate (all-time)", value: fmt(k.winRate) + "%", cls: (k.winRate >= 50 ? "pos" : "neg") },
-    { label: "Profit Factor", value: fmt(k.profitFactor), cls: (k.profitFactor >= 1 ? "pos" : "neg") }
+    { label: "Profit Factor", value: fmt(k.profitFactor), cls: (k.profitFactor >= 1 ? "pos" : "neg") },
+    { label: "Avg win / avg loss", value: '<span class="pos">' + fmtUsd(avgWin) + '</span> / <span class="neg">' + fmtUsd(avgLoss) + '</span>', sub: rrText, cls: "" }
   ];
   document.getElementById("kpiCards").innerHTML = kpiCards.map(function(c) {
     return '<div class="card"><p class="label">' + c.label + '</p><p class="value ' + c.cls + '">' + c.value + '</p>' + (c.sub ? '<p class="sub">' + c.sub + '</p>' : '') + '</div>';
   }).join("");
 
   var a = d.account || {};
+  // "Margin Level 2768%" is voor de meeste mensen niet direct intuitief - hier extra omgerekend
+  // naar een concreet $-bedrag + percentage van de equity (op verzoek Rob), marginLevel% =
+  // equity/margin*100 => margin = equity*100/marginLevel. Alleen tonen als er echt marge in
+  // gebruik is (marginLevel > 0), anders (geen open posities) blijft de sub-regel leeg.
+  var marginSub = "";
+  if (a.marginLevel > 0 && a.equity > 0) {
+    var marginUsed = (a.equity * 100) / a.marginLevel;
+    var exposurePct = (marginUsed / a.equity) * 100;
+    marginSub = "$" + fmt(marginUsed) + " used (" + fmt(exposurePct) + "% of equity)";
+  }
   var cards = [
     { label: "Balance", value: "$" + fmt(a.balance), cls: "" },
     { label: "Equity", value: "$" + fmt(a.equity), cls: "" },
-    { label: "Margin Level", value: fmt(a.marginLevel) + "%", cls: (a.marginLevel < 200 ? "neg" : "pos") },
+    { label: "Margin Level", value: fmt(a.marginLevel) + "%", cls: (a.marginLevel < 200 ? "neg" : "pos"), sub: marginSub },
     { label: "Today P/L", value: fmtUsd(d.todayPnl), cls: pnlClass(d.todayPnl) }
   ];
   document.getElementById("cards").innerHTML = cards.map(function(c) {
-    return '<div class="card"><p class="label">' + c.label + '</p><p class="value ' + c.cls + '">' + c.value + "</p></div>";
+    return '<div class="card"><p class="label">' + c.label + '</p><p class="value ' + c.cls + '">' + c.value + '</p>' + (c.sub ? '<p class="sub">' + c.sub + '</p>' : '') + '</div>';
   }).join("");
 
   // Gauges: winrate, profit-factor genormaliseerd naar een 0-100% balk (pf van 2.0 = 100%), grootste winst-symbool-aandeel
@@ -181,10 +197,35 @@ function render(d) {
   var dayLabels = (d.dailyPnl || []).map(function(x) { return shortDate(x.date); });
   var dayValues = (d.dailyPnl || []).map(function(x) { return x.pnl; });
   var dayCounts = (d.dailyPnl || []).map(function(x) { return x.count; });
+  // Value-label plugin: schrijft het $-bedrag (+ aantal trades) altijd BOVEN de balk, ook als
+  // die zelf te klein is om af te lezen (bv. een dag met maar $0.14 winst naast een dag met
+  // $3+) - anders is zo'n kleine balk zonder te hoveren niet van $0 te onderscheiden.
+  var dayValueLabelPlugin = {
+    id: "dayValueLabel",
+    afterDatasetsDraw: function(chart) {
+      var ctx = chart.ctx;
+      var meta = chart.getDatasetMeta(0);
+      ctx.save();
+      ctx.font = "600 11px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.textAlign = "center";
+      meta.data.forEach(function(bar, i) {
+        var v = dayValues[i];
+        ctx.fillStyle = v >= 0 ? COL_GREEN : COL_RED;
+        ctx.fillText(fmtUsd(v), bar.x, bar.y - 8);
+        ctx.fillStyle = COL_SUB;
+        ctx.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
+        ctx.fillText(dayCounts[i] + " trades", bar.x, bar.y - 20);
+        ctx.font = "600 11px -apple-system, Segoe UI, Roboto, sans-serif";
+      });
+      ctx.restore();
+    }
+  };
   new Chart(document.getElementById("dailyChart"), {
     type: "bar",
     data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
+    plugins: [dayValueLabelPlugin],
     options: {
+      layout: { padding: { top: 26 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: function(item) { return fmtUsd(item.parsed.y) + " (" + dayCounts[item.dataIndex] + " trades)"; } } }
@@ -200,7 +241,7 @@ function render(d) {
   var symValues = (d.symbolBreakdown || []).map(function(s) { return s.pnl; });
   new Chart(document.getElementById("symbolChart"), {
     type: "bar",
-    data: { labels: symLabels, datasets: [{ data: symValues, backgroundColor: symValues.map(function(v) { return v >= 0 ? COL_ACCENT2 : COL_RED; }), borderRadius: 4 }] },
+    data: { labels: symLabels, datasets: [{ data: symValues, backgroundColor: symValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
     options: {
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(item) { return fmtUsd(item.parsed.y); } } } },
       scales: {
@@ -232,11 +273,73 @@ function render(d) {
     var dd = v - peak;
     if (dd < maxDD) { maxDD = dd; maxDDIdx = i; }
   });
+  // Drawdown ook als % van de huidige balance tonen (naast het kale $-bedrag) - een dollarbedrag
+  // zegt weinig zonder referentiekader, een percentage is direct vergelijkbaar tussen periodes.
+  // Benadering: gebruikt de HUIDIGE balance als noemer (geen historische balance-reeks
+  // beschikbaar) - conservatief genoeg zolang de balance sindsdien alleen maar gegroeid is.
+  var acctBalance = (d.account && d.account.balance) ? d.account.balance : 0;
+  var ddPctHtml = "";
+  if (acctBalance > 0 && maxDD < 0) {
+    var ddPct = (maxDD / acctBalance) * 100;
+    ddPctHtml = '<span style="color:' + COL_ACCENT + ';font-weight:600">' + fmt(ddPct) + '% of balance</span>';
+  }
   var legendHtml = '<span><span class="dot" style="background:' + COL_RED + '"></span>Biggest pullback: ' + fmtUsd(maxDD) +
     (maxDDIdx >= 0 && d.equityCurve[maxDDIdx] ? " (" + shortDate(d.equityCurve[maxDDIdx].time) + ")" : "") + '</span>' +
+    ddPctHtml +
     '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>';
   document.getElementById("eqLegend").innerHTML = eqValues.length ? legendHtml : "";
 
+  // Puntjes-stijl (op verzoek Rob - "combinatie" van kleine stipjes op elke trade EN twee
+  // uitgelichte punten): de meeste punten blijven klein/paars, alleen de dieptepunt-trade
+  // (maxDDIdx) en de laatste/huidige trade springen eruit met een grotere, felle stip.
+  var eqLastIdx = eqValues.length - 1;
+  function eqPointRadius(context) {
+    var i = context.dataIndex;
+    if (i === maxDDIdx || i === eqLastIdx) return 6;
+    return 2;
+  }
+  function eqPointHoverRadius(context) {
+    var i = context.dataIndex;
+    return (i === maxDDIdx || i === eqLastIdx) ? 8 : 5;
+  }
+  function eqPointBg(context) {
+    var i = context.dataIndex;
+    if (i === maxDDIdx) return COL_RED;
+    if (i === eqLastIdx) return "#fff";
+    return COL_ACCENT;
+  }
+  function eqPointBorder(context) {
+    var i = context.dataIndex;
+    if (i === maxDDIdx) return COL_RED;
+    if (i === eqLastIdx) return COL_ACCENT;
+    return "#0a0b10";
+  }
+  function eqPointBorderWidth(context) {
+    var i = context.dataIndex;
+    return (i === eqLastIdx) ? 2 : 1;
+  }
+  // Gestippelde verticale gidslijn van het dieptepunt naar de x-as, zodat je in Ã©Ã©n oogopslag
+  // ziet WANNEER de grootste terugval was, net als de referentie-screenshot van Rob.
+  var eqGuideLinePlugin = {
+    id: "eqGuideLine",
+    afterDatasetsDraw: function(chart) {
+      if (maxDDIdx < 0) return;
+      var meta = chart.getDatasetMeta(0);
+      var pt = meta.data[maxDDIdx];
+      if (!pt) return;
+      var ctx = chart.ctx;
+      var bottom = chart.chartArea.bottom;
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = COL_RED;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pt.x, pt.y);
+      ctx.lineTo(pt.x, bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
   new Chart(document.getElementById("equityChart"), {
     type: "line",
     data: {
@@ -253,9 +356,10 @@ function render(d) {
           gradient.addColorStop(1, "rgba(91,141,239,0.0)");
           return gradient;
         },
-        fill: true, pointRadius: 2.5, pointHoverRadius: 6, pointBackgroundColor: COL_ACCENT, pointBorderColor: "#0a0b10", pointBorderWidth: 1, tension: 0.15, borderWidth: 2.5
+        fill: true, pointRadius: eqPointRadius, pointHoverRadius: eqPointHoverRadius, pointBackgroundColor: eqPointBg, pointBorderColor: eqPointBorder, pointBorderWidth: eqPointBorderWidth, tension: 0.15, borderWidth: 2.5
       }]
     },
+    plugins: [eqGuideLinePlugin],
     options: {
       plugins: {
         legend: { display: false },
@@ -273,7 +377,7 @@ function render(d) {
   var sessPnl = (d.sessionBreakdown || []).map(function(s) { return s.pnl; });
   new Chart(document.getElementById("sessionChart"), {
     type: "bar",
-    data: { labels: sessLabels, datasets: [{ data: sessCounts, backgroundColor: sessPnl.map(function(v) { return v >= 0 ? COL_ACCENT : COL_RED; }), borderRadius: 4 }] },
+    data: { labels: sessLabels, datasets: [{ data: sessCounts, backgroundColor: sessPnl.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
     options: {
       plugins: {
         legend: { display: false },
