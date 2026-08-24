@@ -45,6 +45,11 @@
   .chartsGrid { display: grid; grid-template-columns: 1fr; gap: 16px; }
   .legendRow { display: flex; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--sub); flex-wrap: wrap; }
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .eqControls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .pillGroup { display: flex; gap: 2px; background: var(--panel-2); border-radius: 8px; padding: 2px; }
+  .pillBtn { font-size: 11px; padding: 4px 10px; border: none; border-radius: 6px; background: transparent; color: var(--sub); cursor: pointer; font-family: inherit; }
+  .pillBtn.active { background: var(--panel); color: var(--text); font-weight: 600; }
+  .eqSelect { font-size: 11.5px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-family: inherit; }
   @media (min-width: 640px) { .chartsGrid { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
@@ -67,8 +72,20 @@
 
 <div class="panel">
   <div class="panelHead">
-    <div><h2>Equity Curve</h2><p class="panelSub">Running total of realized profit/loss, one point per closed trade</p></div>
+    <div><h2>Equity Curve</h2><p class="panelSub">Running total of realized profit/loss</p></div>
     <div class="badge"><div class="big" id="eqCurrentVal">-</div><div class="tiny">current total</div></div>
+  </div>
+  <div class="eqControls">
+    <div class="pillGroup" id="eqWindowPills">
+      <button type="button" class="pillBtn active" data-w="all">All</button>
+      <button type="button" class="pillBtn" data-w="7">7D</button>
+      <button type="button" class="pillBtn" data-w="30">30D</button>
+    </div>
+    <select id="eqGran" class="eqSelect">
+      <option value="daily">Daily</option>
+      <option value="weekly">Weekly</option>
+      <option value="monthly">Monthly</option>
+    </select>
   </div>
   <canvas id="equityChart"></canvas>
   <div class="legendRow" id="eqLegend"></div>
@@ -251,126 +268,162 @@ function render(d) {
     }
   });
 
-  // d.time = "2026.08.20 23:44:33" (broker time) -> tooltip title shows the full timestamp,
-  // x-axis ticks show a short "Aug 20" label via the callback below.
-  function eqLabel(t) {
-    var m = /^(\d{4})\.(\d{2})\.(\d{2}) (\d{2}):(\d{2})/.exec(t || "");
-    return m ? (shortDate(t) + " " + m[4] + ":" + m[5]) : (t || "");
+  // d.time = "2026.08.20 23:44:33" (broker time). Equity-curve-controls (op verzoek Rob, 2026-08-24):
+  // een Daily/Weekly/Monthly-aggregatie-dropdown (leidend - bepaalt hoe grof de punten zijn, toont
+  // altijd de HELE historie) plus een All/7D/30D-tijdvenster (secundair - knipt oudere trades weg).
+  // Beide zijn te combineren (bv. Weekly + 30D). Herbouwt de grafiek volledig bij elke wijziging,
+  // want zowel de bucket-indeling als de pullback/"now"-markering hangen af van wat er zichtbaar is.
+  function parseEqTime(t) {
+    var m = /^(\d{4})\.(\d{2})\.(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(t || "");
+    if (!m) return null;
+    return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), parseInt(m[4], 10), parseInt(m[5], 10), parseInt(m[6], 10));
   }
-  var eqLabels = (d.equityCurve || []).map(function(e) { return eqLabel(e.time); });
-  var eqValues = (d.equityCurve || []).map(function(e) { return e.cum; });
-  var eqCurrent = eqValues.length ? eqValues[eqValues.length - 1] : 0;
-  var eqEl = document.getElementById("eqCurrentVal");
-  eqEl.textContent = fmtUsd(eqCurrent);
-  eqEl.className = "big " + pnlClass(eqCurrent);
+  function eqDailyLabel(dt) { return MONTH_NAMES[dt.getMonth()] + " " + dt.getDate(); }
+  function eqWeekLabel(dt) {
+    var day = dt.getDay();
+    var diff = (day === 0 ? -6 : 1) - day; // terug naar maandag
+    var monday = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + diff);
+    return "Week of " + eqDailyLabel(monday);
+  }
+  function eqMonthLabel(dt) { return MONTH_NAMES[dt.getMonth()] + " " + dt.getFullYear(); }
+  function eqBucketKeyAndLabel(dt, gran) {
+    if (gran === "weekly") return eqWeekLabel(dt);
+    if (gran === "monthly") return eqMonthLabel(dt);
+    return eqDailyLabel(dt);
+  }
 
-  // Grootste terugval (peak-to-trough) - loopt eenmalig door de reeks, houdt de tot-dan-toe
-  // hoogste stand bij en onthoudt het diepste punt daaronder. Puur informatief voor de legende
-  // onder de grafiek (op verzoek van Rob - "hoe interpreteer ik wat ik zie?").
-  var peak = -Infinity, maxDD = 0, maxDDIdx = -1;
-  eqValues.forEach(function(v, i) {
-    if (v > peak) peak = v;
-    var dd = v - peak;
-    if (dd < maxDD) { maxDD = dd; maxDDIdx = i; }
-  });
-  // Drawdown ook als % van de huidige balance tonen (naast het kale $-bedrag) - een dollarbedrag
-  // zegt weinig zonder referentiekader, een percentage is direct vergelijkbaar tussen periodes.
-  // Benadering: gebruikt de HUIDIGE balance als noemer (geen historische balance-reeks
-  // beschikbaar) - conservatief genoeg zolang de balance sindsdien alleen maar gegroeid is.
-  var acctBalance = (d.account && d.account.balance) ? d.account.balance : 0;
-  var ddPctHtml = "";
-  if (acctBalance > 0 && maxDD < 0) {
-    var ddPct = (maxDD / acctBalance) * 100;
-    ddPctHtml = '<span style="color:' + COL_ACCENT + ';font-weight:600">' + fmt(ddPct) + '% of balance</span>';
-  }
-  var legendHtml = '<span><span class="dot" style="background:' + COL_RED + '"></span>Biggest pullback: ' + fmtUsd(maxDD) +
-    (maxDDIdx >= 0 && d.equityCurve[maxDDIdx] ? " (" + shortDate(d.equityCurve[maxDDIdx].time) + ")" : "") + '</span>' +
-    ddPctHtml +
-    '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>';
-  document.getElementById("eqLegend").innerHTML = eqValues.length ? legendHtml : "";
+  var eqRawPoints = (d.equityCurve || []).map(function(e) { return { dt: parseEqTime(e.time), cum: e.cum, time: e.time }; }).filter(function(p) { return p.dt; });
+  var eqWindowVal = "all";
 
-  // Puntjes-stijl (op verzoek Rob - "combinatie" van kleine stipjes op elke trade EN twee
-  // uitgelichte punten): de meeste punten blijven klein/paars, alleen de dieptepunt-trade
-  // (maxDDIdx) en de laatste/huidige trade springen eruit met een grotere, felle stip.
-  var eqLastIdx = eqValues.length - 1;
-  function eqPointRadius(context) {
-    var i = context.dataIndex;
-    if (i === maxDDIdx || i === eqLastIdx) return 6;
-    return 2;
-  }
-  function eqPointHoverRadius(context) {
-    var i = context.dataIndex;
-    return (i === maxDDIdx || i === eqLastIdx) ? 8 : 5;
-  }
-  function eqPointBg(context) {
-    var i = context.dataIndex;
-    if (i === maxDDIdx) return COL_RED;
-    if (i === eqLastIdx) return "#fff";
-    return COL_ACCENT;
-  }
-  function eqPointBorder(context) {
-    var i = context.dataIndex;
-    if (i === maxDDIdx) return COL_RED;
-    if (i === eqLastIdx) return COL_ACCENT;
-    return "#0a0b10";
-  }
-  function eqPointBorderWidth(context) {
-    var i = context.dataIndex;
-    return (i === eqLastIdx) ? 2 : 1;
-  }
-  // Gestippelde verticale gidslijn van het dieptepunt naar de x-as, zodat je in Ã©Ã©n oogopslag
-  // ziet WANNEER de grootste terugval was, net als de referentie-screenshot van Rob.
-  var eqGuideLinePlugin = {
-    id: "eqGuideLine",
-    afterDatasetsDraw: function(chart) {
-      if (maxDDIdx < 0) return;
-      var meta = chart.getDatasetMeta(0);
-      var pt = meta.data[maxDDIdx];
-      if (!pt) return;
-      var ctx = chart.ctx;
-      var bottom = chart.chartArea.bottom;
-      ctx.save();
-      ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = COL_RED;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(pt.x, pt.y);
-      ctx.lineTo(pt.x, bottom);
-      ctx.stroke();
-      ctx.restore();
+  function eqPointBg(i, maxDDIdx, lastIdx) { if (i === maxDDIdx) return COL_RED; if (i === lastIdx) return "#fff"; return COL_ACCENT; }
+  function eqPointBorder(i, maxDDIdx, lastIdx) { if (i === maxDDIdx) return COL_RED; if (i === lastIdx) return COL_ACCENT; return "#0a0b10"; }
+
+  var eqChartInstance = null;
+
+  function renderEquityChart() {
+    var gran = document.getElementById("eqGran").value;
+    var points = eqRawPoints;
+    if (eqWindowVal !== "all" && points.length) {
+      var lastDt = points[points.length - 1].dt;
+      var cutoff = new Date(lastDt.getFullYear(), lastDt.getMonth(), lastDt.getDate() - parseInt(eqWindowVal, 10));
+      points = points.filter(function(p) { return p.dt >= cutoff; });
     }
-  };
-  new Chart(document.getElementById("equityChart"), {
-    type: "line",
-    data: {
-      labels: eqLabels,
-      datasets: [{
-        data: eqValues,
-        borderColor: COL_ACCENT,
-        backgroundColor: function(context) {
-          var chart = context.chart;
-          var chartArea = chart.chartArea;
-          if (!chartArea) return null;
-          var gradient = chart.ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-          gradient.addColorStop(0, "rgba(124,108,246,0.35)");
-          gradient.addColorStop(1, "rgba(91,141,239,0.0)");
-          return gradient;
-        },
-        fill: true, pointRadius: eqPointRadius, pointHoverRadius: eqPointHoverRadius, pointBackgroundColor: eqPointBg, pointBorderColor: eqPointBorder, pointBorderWidth: eqPointBorderWidth, tension: 0.15, borderWidth: 2.5
-      }]
-    },
-    plugins: [eqGuideLinePlugin],
-    options: {
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { title: function(items) { return items.length ? items[0].label : ""; }, label: function(item) { return fmtUsd(item.parsed.y); } } }
-      },
-      scales: {
-        x: { ticks: { color: COL_SUB, font: { size: 10 }, autoSkip: true, maxTicksLimit: 6 }, grid: { display: false } },
-        y: { ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
+
+    // Aggregeren: per bucket (dag/week/maand) de LAATSTE stand in die periode bewaren - dat is
+    // logisch de "eindstand" van die periode, net als hoe je een aandelenkoers per dag afsluit.
+    var bucketMap = {};
+    var bucketOrder = [];
+    points.forEach(function(p) {
+      var key = eqBucketKeyAndLabel(p.dt, gran);
+      if (!(key in bucketMap)) bucketOrder.push(key);
+      bucketMap[key] = p.cum;
+    });
+    var eqLabels = bucketOrder;
+    var eqValues = bucketOrder.map(function(k) { return bucketMap[k]; });
+
+    var eqCurrent = eqValues.length ? eqValues[eqValues.length - 1] : 0;
+    var eqEl = document.getElementById("eqCurrentVal");
+    eqEl.textContent = fmtUsd(eqCurrent);
+    eqEl.className = "big " + pnlClass(eqCurrent);
+
+    // Grootste terugval (peak-to-trough) op het NIVEAU van de huidige weergave (dag/week/maand) -
+    // loopt eenmalig door de gebucketede reeks, houdt de tot-dan-toe hoogste stand bij en onthoudt
+    // het diepste punt daaronder. Puur informatief voor de legende onder de grafiek.
+    var peak = -Infinity, maxDD = 0, maxDDIdx = -1;
+    eqValues.forEach(function(v, i) {
+      if (v > peak) peak = v;
+      var dd = v - peak;
+      if (dd < maxDD) { maxDD = dd; maxDDIdx = i; }
+    });
+    var acctBalance = (d.account && d.account.balance) ? d.account.balance : 0;
+    var ddPctHtml = "";
+    if (acctBalance > 0 && maxDD < 0) {
+      var ddPct = (maxDD / acctBalance) * 100;
+      ddPctHtml = '<span style="color:' + COL_ACCENT + ';font-weight:600">' + fmt(ddPct) + '% of balance</span>';
+    }
+    var legendHtml = '<span><span class="dot" style="background:' + COL_RED + '"></span>Biggest pullback: ' + fmtUsd(maxDD) +
+      (maxDDIdx >= 0 && eqLabels[maxDDIdx] ? " (" + eqLabels[maxDDIdx] + ")" : "") + '</span>' +
+      ddPctHtml +
+      '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>';
+    document.getElementById("eqLegend").innerHTML = eqValues.length ? legendHtml : "";
+
+    // Puntjes-stijl (op verzoek Rob - "combinatie" van kleine stipjes op elk punt EN twee
+    // uitgelichte punten): de meeste punten blijven klein/paars, alleen het dieptepunt (maxDDIdx)
+    // en het laatste/huidige punt springen eruit met een grotere, felle stip.
+    var eqLastIdx = eqValues.length - 1;
+    function eqPointRadius(context) { var i = context.dataIndex; return (i === maxDDIdx || i === eqLastIdx) ? 6 : 2; }
+    function eqPointHoverRadius(context) { var i = context.dataIndex; return (i === maxDDIdx || i === eqLastIdx) ? 8 : 5; }
+    // Gestippelde verticale gidslijn van het dieptepunt naar de x-as, zodat je in Ã©Ã©n oogopslag
+    // ziet WANNEER de grootste terugval was.
+    var eqGuideLinePlugin = {
+      id: "eqGuideLine",
+      afterDatasetsDraw: function(chart) {
+        if (maxDDIdx < 0) return;
+        var meta = chart.getDatasetMeta(0);
+        var pt = meta.data[maxDDIdx];
+        if (!pt) return;
+        var ctx = chart.ctx;
+        var bottom = chart.chartArea.bottom;
+        ctx.save();
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = COL_RED;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x, bottom);
+        ctx.stroke();
+        ctx.restore();
       }
-    }
+    };
+
+    if (eqChartInstance) { eqChartInstance.destroy(); }
+    eqChartInstance = new Chart(document.getElementById("equityChart"), {
+      type: "line",
+      data: {
+        labels: eqLabels,
+        datasets: [{
+          data: eqValues,
+          borderColor: COL_ACCENT,
+          backgroundColor: function(context) {
+            var chart = context.chart;
+            var chartArea = chart.chartArea;
+            if (!chartArea) return null;
+            var gradient = chart.ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            gradient.addColorStop(0, "rgba(124,108,246,0.35)");
+            gradient.addColorStop(1, "rgba(91,141,239,0.0)");
+            return gradient;
+          },
+          fill: true, pointRadius: eqPointRadius, pointHoverRadius: eqPointHoverRadius,
+          pointBackgroundColor: function(context) { return eqPointBg(context.dataIndex, maxDDIdx, eqLastIdx); },
+          pointBorderColor: function(context) { return eqPointBorder(context.dataIndex, maxDDIdx, eqLastIdx); },
+          pointBorderWidth: function(context) { return context.dataIndex === eqLastIdx ? 2 : 1; },
+          tension: 0.15, borderWidth: 2.5
+        }]
+      },
+      plugins: [eqGuideLinePlugin],
+      options: {
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { title: function(items) { return items.length ? items[0].label : ""; }, label: function(item) { return fmtUsd(item.parsed.y); } } }
+        },
+        scales: {
+          x: { ticks: { color: COL_SUB, font: { size: 10 }, autoSkip: true, maxTicksLimit: 6 }, grid: { display: false } },
+          y: { ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
+        }
+      }
+    });
+  }
+
+  document.getElementById("eqGran").addEventListener("change", renderEquityChart);
+  Array.prototype.forEach.call(document.querySelectorAll("#eqWindowPills .pillBtn"), function(btn) {
+    btn.addEventListener("click", function() {
+      eqWindowVal = btn.getAttribute("data-w");
+      Array.prototype.forEach.call(document.querySelectorAll("#eqWindowPills .pillBtn"), function(b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      renderEquityChart();
+    });
   });
+  renderEquityChart();
 
   var sessLabels = (d.sessionBreakdown || []).map(function(s) { return s.session; });
   var sessCounts = (d.sessionBreakdown || []).map(function(s) { return s.count; });
