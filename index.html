@@ -283,7 +283,11 @@ function render(d) {
         // verlies-balk alsnog over de as-datumtekst eronder heen vielen. -2 geeft altijd wat
         // extra lucht, ongeacht hoe klein het werkelijke verlies is; bij een groter verlies dan
         // -2 schaalt de as gewoon vanzelf verder mee (suggestedMin is een ondergrens, geen cap).
-        y: { suggestedMin: -2, ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
+        // 2026-08-25 v3 (Rob, na screenshot: "13 trades"-regel nog te dicht op "Aug 25"-label):
+        // -2 bleek in de praktijk nog niet genoeg lucht voor een heel kleine verlies-balk zoals
+        // -$0.44 (countY = bar.y+30 kwam nog net over de as-tekst heen). -5 geeft ~60% meer
+        // pixel-ruimte onder de nullijn dan -2, ruim voldoende voor de 30px-offset + teksthoogte.
+        y: { suggestedMin: -5, ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
       }
     }
   });
