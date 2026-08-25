@@ -240,9 +240,18 @@ function render(d) {
         // onzichtbaar. Nu: voor negatieve balken de offsets omdraaien (omlaag i.p.v. omhoog),
         // zodat het label ook dan in de lege ruimte ONDER de balk terechtkomt - symmetrisch
         // met hoe het al voor positieve balken werkte.
+        // 2026-08-25 v2 (Rob: "niet echt mooi, prijs vermelding staat te dicht op de balk" +
+        // bij de verlies-balk viel het label nog over de "Aug 25"-as-tekst heen): twee
+        // aanpassingen. (1) Basis-afstand tot de balk van 8 naar 14px, en het tweede regeltje
+        // (trades-aantal) niet meer 12px verder maar 16px verder (dus 14+16=30 i.p.v. 8+12=20)
+        // - meer lucht tussen tekst en balk, en tussen de twee regels onderling, voor ZOWEL
+        // positieve als negatieve balken. (2) Voor het as-tekst-probleem: zie de nieuwe
+        // suggestedMin op de y-as hieronder - dat geeft een kleine verlies-balk als deze
+        // gegarandeerd meer verticale ruimte tot de onderkant van het plot-gebied, ongeacht hoe
+        // klein het werkelijke verlies is.
         var isNeg = v < 0;
-        var valueY = isNeg ? (bar.y + 8) : (bar.y - 8);
-        var countY = isNeg ? (bar.y + 20) : (bar.y - 20);
+        var valueY = isNeg ? (bar.y + 14) : (bar.y - 14);
+        var countY = isNeg ? (bar.y + 30) : (bar.y - 30);
         ctx.fillStyle = v >= 0 ? COL_GREEN : COL_RED;
         ctx.fillText(fmtUsd(v), bar.x, valueY);
         ctx.fillStyle = COL_SUB;
@@ -261,14 +270,20 @@ function render(d) {
       // 2026-08-25: bottom-padding toegevoegd (mirror van de bestaande top:26) - anders hebben
       // de omgedraaide labels bij een grotere verlies-dag geen ruimte en worden ze alsnog
       // afgesneden door de onderkant van de canvas.
-      layout: { padding: { top: 26, bottom: 22 } },
+      layout: { padding: { top: 32, bottom: 26 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: function(item) { return fmtUsd(item.parsed.y) + " (" + dayCounts[item.dataIndex] + " trades)"; } } }
       },
       scales: {
         x: { ticks: { color: COL_SUB, font: { size: 10 } }, grid: { display: false } },
-        y: { ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
+        // 2026-08-25: suggestedMin toegevoegd - zonder dit schaalt Chart.js de y-as strak rond
+        // de werkelijke data (bv. tot -$1 bij een verlies van -$0.44), waardoor het plot-gebied
+        // vlak onder de nullijn ophoudt en de omlaag-geplaatste labels van een KLEINE
+        // verlies-balk alsnog over de as-datumtekst eronder heen vielen. -2 geeft altijd wat
+        // extra lucht, ongeacht hoe klein het werkelijke verlies is; bij een groter verlies dan
+        // -2 schaalt de as gewoon vanzelf verder mee (suggestedMin is een ondergrens, geen cap).
+        y: { suggestedMin: -2, ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
       }
     }
   });
