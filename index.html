@@ -229,11 +229,25 @@ function render(d) {
       ctx.textAlign = "center";
       meta.data.forEach(function(bar, i) {
         var v = dayValues[i];
+        // 2026-08-25 FIX (Rob liet screenshot zien: laatste balk (verlies-dag) miste het
+        // $-label, alleen "trades" was zichtbaar): bar.y is voor Chart.js het puntje van de
+        // balk dat NIET op de nullijn zit - voor een POSITIEVE balk ligt dat BOVEN de nullijn
+        // (kleinere pixel-y), voor een NEGATIEVE balk ligt dat ONDER de nullijn (grotere
+        // pixel-y, canvas-y loopt omlaag). De oude code deed altijd "bar.y - 8"/"bar.y - 20"
+        // (omhoog) - voor een positieve balk is dat "weg van de balk, het lege gebied in"
+        // (correct), maar voor een negatieve balk juist "terug de balk IN" (richting de
+        // nullijn) - dus het label viel over de rode balk heen en was daardoor onleesbaar/
+        // onzichtbaar. Nu: voor negatieve balken de offsets omdraaien (omlaag i.p.v. omhoog),
+        // zodat het label ook dan in de lege ruimte ONDER de balk terechtkomt - symmetrisch
+        // met hoe het al voor positieve balken werkte.
+        var isNeg = v < 0;
+        var valueY = isNeg ? (bar.y + 8) : (bar.y - 8);
+        var countY = isNeg ? (bar.y + 20) : (bar.y - 20);
         ctx.fillStyle = v >= 0 ? COL_GREEN : COL_RED;
-        ctx.fillText(fmtUsd(v), bar.x, bar.y - 8);
+        ctx.fillText(fmtUsd(v), bar.x, valueY);
         ctx.fillStyle = COL_SUB;
         ctx.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
-        ctx.fillText(dayCounts[i] + " trades", bar.x, bar.y - 20);
+        ctx.fillText(dayCounts[i] + " trades", bar.x, countY);
         ctx.font = "600 11px -apple-system, Segoe UI, Roboto, sans-serif";
       });
       ctx.restore();
@@ -244,7 +258,10 @@ function render(d) {
     data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
     plugins: [dayValueLabelPlugin],
     options: {
-      layout: { padding: { top: 26 } },
+      // 2026-08-25: bottom-padding toegevoegd (mirror van de bestaande top:26) - anders hebben
+      // de omgedraaide labels bij een grotere verlies-dag geen ruimte en worden ze alsnog
+      // afgesneden door de onderkant van de canvas.
+      layout: { padding: { top: 26, bottom: 22 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: function(item) { return fmtUsd(item.parsed.y) + " (" + dayCounts[item.dataIndex] + " trades)"; } } }
