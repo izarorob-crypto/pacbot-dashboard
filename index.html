@@ -164,9 +164,16 @@ function render(d) {
     var exposurePct = (marginUsed / a.equity) * 100;
     marginSub = "$" + fmt(marginUsed) + " used (" + fmt(exposurePct) + "% of equity)";
   }
+  // 2026-08-26 (op verzoek van Rob - "de actuele Drawdown in % wil ik live zien"): drijvend
+  // (nog open, ongerealiseerd) resultaat over ALLE open posities samen, live meegestuurd elke
+  // dashboard-cyclus (~3 min) vanuit Build-PacBotDashboardSnapshot. Dit is bewust iets ANDERS
+  // dan de bestaande "Biggest pullback"-regel onder de equity-curve (dat is geschiedenis van
+  // gerealiseerde trades) en de Margin Level-kaart (dat gaat over marge-gebruik, niet P/L).
+  var floatingPct = (typeof a.floatingPnlPercent === "number") ? a.floatingPnlPercent : 0;
   var cards = [
     { label: "Balance", value: "$" + fmt(a.balance), cls: "" },
     { label: "Equity", value: "$" + fmt(a.equity), cls: "" },
+    { label: "Floating P/L (live)", value: fmtUsd(a.floatingPnl || 0), cls: pnlClass(a.floatingPnl || 0), sub: fmt(floatingPct) + "% of balance" },
     { label: "Margin Level", value: fmt(a.marginLevel) + "%", cls: (a.marginLevel < 200 ? "neg" : "pos"), sub: marginSub },
     { label: "Today P/L", value: fmtUsd(d.todayPnl), cls: pnlClass(d.todayPnl) }
   ];
