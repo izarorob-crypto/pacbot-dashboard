@@ -50,6 +50,10 @@
   .pillBtn { font-size: 11px; padding: 4px 10px; border: none; border-radius: 6px; background: transparent; color: var(--sub); cursor: pointer; font-family: inherit; }
   .pillBtn.active { background: var(--panel); color: var(--text); font-weight: 600; }
   .eqSelect { font-size: 11.5px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-family: inherit; }
+  .panelNav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .navBtn { font-size: 13px; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); color: var(--text); cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; }
+  .navBtn:disabled { opacity: .35; cursor: default; }
+  .navLabel { font-size: 10.5px; color: var(--sub); min-width: 78px; text-align: center; }
   @media (min-width: 640px) { .chartsGrid { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
@@ -96,10 +100,30 @@
   <div class="panel"><h2>Trades by Session</h2><p class="panelSub">Asia / London / London-NY / NY</p><canvas id="sessionChart"></canvas></div>
 </div>
 
-<div class="panel"><h2>Daily P/L</h2><p class="panelSub">Last 5 trading days</p><canvas id="dailyChart"></canvas></div>
+<div class="panel">
+  <div class="panelHead">
+    <div><h2>Daily P/L</h2><p class="panelSub" id="dailySub">Last 5 trading days</p></div>
+    <div class="panelNav">
+      <button type="button" class="navBtn" id="dailyPrev" title="Older days">&#8249;</button>
+      <span class="navLabel" id="dailyNavLabel"></span>
+      <button type="button" class="navBtn" id="dailyNext" title="Newer days">&#8250;</button>
+    </div>
+  </div>
+  <canvas id="dailyChart"></canvas>
+</div>
 <div class="panel"><h2>Close Reason Breakdown</h2><table id="reasonTable"><thead><tr><th>Reason</th><th>Trades</th><th style="text-align:right">P/L</th></tr></thead><tbody></tbody></table></div>
 <div class="panel"><h2>Open Positions</h2><table id="posTable"></table></div>
-<div class="panel"><h2>Recent Activity</h2><table id="closedTable"></table></div>
+<div class="panel">
+  <div class="panelHead">
+    <div><h2>Recent Activity</h2><p class="panelSub" id="closedSub">Last 5 closed trades</p></div>
+    <div class="panelNav">
+      <button type="button" class="navBtn" id="closedPrev" title="Older trades">&#8249;</button>
+      <span class="navLabel" id="closedNavLabel"></span>
+      <button type="button" class="navBtn" id="closedNext" title="Newer trades">&#8250;</button>
+    </div>
+  </div>
+  <table id="closedTable"></table>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
 function fmt(n) { n = n || 0; return (Math.round(n * 100) / 100).toFixed(2); }
@@ -209,10 +233,37 @@ function render(d) {
   }).join("");
   document.getElementById("posTable").innerHTML = posRows || '<tr><td class="muted">no open positions</td></tr>';
 
-  var closedRows = (d.recentClosed || []).map(function(c) {
-    return "<tr><td>" + c.symbol + " " + c.direction + "</td><td class=\"muted\">" + reasonLabel(c.reason || "") + "</td><td style=\"text-align:right\" class=\"" + pnlClass(c.pnl) + "\">" + fmtUsd(c.pnl) + "</td></tr>";
-  }).join("");
-  document.getElementById("closedTable").innerHTML = closedRows || '<tr><td class="muted">no recent closes yet</td></tr>';
+  // 2026-08-26 (op verzoek van Rob: "ik wil 5 zichtbaar hebben en de mogelijkheid oudere te
+  // zien"): de server stuurt nu tot 60 trades mee (was 10) - hier standaard de nieuwste 5 tonen
+  // (recentClosed staat al reverse-chronologisch, nieuwste eerst), met vorige/volgende om door de
+  // rest te bladeren zonder de pagina met meer dan 5 rijen tegelijk vol te zetten.
+  var closedFull = d.recentClosed || [];
+  var CLOSED_PAGE = 5;
+  var closedOffset = 0;
+
+  function renderClosedTable() {
+    var page = closedFull.slice(closedOffset, closedOffset + CLOSED_PAGE);
+    var closedRows = page.map(function(c) {
+      return "<tr><td>" + c.symbol + " " + c.direction + "</td><td class=\"muted\">" + reasonLabel(c.reason || "") + "</td><td style=\"text-align:right\" class=\"" + pnlClass(c.pnl) + "\">" + fmtUsd(c.pnl) + "</td></tr>";
+    }).join("");
+    document.getElementById("closedTable").innerHTML = closedRows || '<tr><td class="muted">no recent closes yet</td></tr>';
+
+    document.getElementById("closedNavLabel").textContent = closedFull.length
+      ? ((closedOffset + 1) + "-" + Math.min(closedOffset + CLOSED_PAGE, closedFull.length) + " of " + closedFull.length)
+      : "";
+    document.getElementById("closedPrev").disabled = (closedOffset + CLOSED_PAGE) >= closedFull.length;
+    document.getElementById("closedNext").disabled = (closedOffset === 0);
+  }
+
+  renderClosedTable();
+  document.getElementById("closedPrev").addEventListener("click", function() {
+    closedOffset = Math.min(closedOffset + CLOSED_PAGE, Math.max(0, closedFull.length - CLOSED_PAGE));
+    renderClosedTable();
+  });
+  document.getElementById("closedNext").addEventListener("click", function() {
+    closedOffset = Math.max(0, closedOffset - CLOSED_PAGE);
+    renderClosedTable();
+  });
 
   var COL_SUB = "#8b8fa3", COL_BORDER = "#252838", COL_GREEN = "#34d399", COL_RED = "#f0475a", COL_ACCENT = "#7c6cf6", COL_ACCENT2 = "#5b8def";
   var MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -221,9 +272,25 @@ function render(d) {
     return m ? (MONTH_NAMES[parseInt(m[2], 10) - 1] + " " + parseInt(m[3], 10)) : (t || "");
   }
 
-  var dayLabels = (d.dailyPnl || []).map(function(x) { return shortDate(x.date); });
-  var dayValues = (d.dailyPnl || []).map(function(x) { return x.pnl; });
-  var dayCounts = (d.dailyPnl || []).map(function(x) { return x.count; });
+  // 2026-08-26 (op verzoek van Rob: "wat gebeurt er met oudere dagen, kan ik die terughalen"):
+  // de server stuurt nu tot 45 dagbalken mee (was 5) - het chart zelf blijft standaard maar de
+  // laatste 5 tonen (dailyOffset=0), met vorige/volgende om verder terug te bladeren door de rest.
+  var dailyFull = d.dailyPnl || [];
+  var DAILY_PAGE = 5;
+  var dailyOffset = 0;
+  var dailyChartInstance = null;
+
+  function dailyPageSlice() {
+    var end = dailyFull.length - dailyOffset;
+    var start = Math.max(0, end - DAILY_PAGE);
+    return dailyFull.slice(start, end);
+  }
+
+  function renderDailyChart() {
+  var page = dailyPageSlice();
+  var dayLabels = page.map(function(x) { return shortDate(x.date); });
+  var dayValues = page.map(function(x) { return x.pnl; });
+  var dayCounts = page.map(function(x) { return x.count; });
   // Value-label plugin: schrijft het $-bedrag (+ aantal trades) altijd BOVEN de balk, ook als
   // die zelf te klein is om af te lezen (bv. een dag met maar $0.14 winst naast een dag met
   // $3+) - anders is zo'n kleine balk zonder te hoveren niet van $0 te onderscheiden.
@@ -270,7 +337,8 @@ function render(d) {
       ctx.restore();
     }
   };
-  new Chart(document.getElementById("dailyChart"), {
+  if (dailyChartInstance) { dailyChartInstance.destroy(); }
+  dailyChartInstance = new Chart(document.getElementById("dailyChart"), {
     type: "bar",
     data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
     plugins: [dayValueLabelPlugin],
@@ -298,6 +366,23 @@ function render(d) {
         y: { suggestedMin: -5, ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
       }
     }
+  });
+
+  document.getElementById("dailyNavLabel").textContent = page.length
+    ? (shortDate(page[0].date) + " - " + shortDate(page[page.length - 1].date))
+    : "";
+  document.getElementById("dailyPrev").disabled = (dailyFull.length - dailyOffset - DAILY_PAGE) <= 0;
+  document.getElementById("dailyNext").disabled = (dailyOffset === 0);
+  }
+
+  renderDailyChart();
+  document.getElementById("dailyPrev").addEventListener("click", function() {
+    dailyOffset = Math.min(dailyOffset + DAILY_PAGE, Math.max(0, dailyFull.length - DAILY_PAGE));
+    renderDailyChart();
+  });
+  document.getElementById("dailyNext").addEventListener("click", function() {
+    dailyOffset = Math.max(0, dailyOffset - DAILY_PAGE);
+    renderDailyChart();
   });
 
   var symLabels = (d.symbolBreakdown || []).map(function(s) { return s.symbol; });
