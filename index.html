@@ -112,7 +112,7 @@
   <canvas id="dailyChart"></canvas>
 </div>
 <div class="panel"><h2>Close Reason Breakdown</h2><table id="reasonTable"><thead><tr><th>Reason</th><th>Trades</th><th style="text-align:right">P/L</th></tr></thead><tbody></tbody></table></div>
-<div class="panel"><h2>Open Positions</h2><table id="posTable"></table></div>
+<div class="panel"><h2>Open Positions</h2><table id="posTable"><thead><tr><th>Pair</th><th>Lot</th><th style="text-align:right">P/L</th><th style="text-align:right">DD%</th></tr></thead><tbody></tbody></table></div>
 <div class="panel">
   <div class="panelHead">
     <div><h2>Recent Activity</h2><p class="panelSub" id="closedSub">Last 5 closed trades</p></div>
@@ -229,9 +229,11 @@ function render(d) {
   document.querySelector("#reasonTable tbody").innerHTML = reasonRows || '<tr><td class="muted">no closed trades yet</td></tr>';
 
   var posRows = (d.openPositions || []).map(function(p) {
-    return "<tr><td>" + p.symbol + " " + p.direction + "</td><td>" + p.lot + "</td><td style=\"text-align:right\" class=\"" + pnlClass(p.pnl) + "\">" + fmtUsd(p.pnl) + "</td></tr>";
+    var dd = (typeof p.ddPercent === "number") ? p.ddPercent : 0;
+    var ddColor = dd >= 50 ? "#f0475a" : (dd >= 20 ? "#fbbf24" : "#8a94a6");
+    return "<tr><td>" + p.symbol + " " + p.direction + "</td><td>" + p.lot + "</td><td style=\"text-align:right\" class=\"" + pnlClass(p.pnl) + "\">" + fmtUsd(p.pnl) + "</td><td style=\"text-align:right;color:" + ddColor + "\">" + dd.toFixed(1) + "%</td></tr>";
   }).join("");
-  document.getElementById("posTable").innerHTML = posRows || '<tr><td class="muted">no open positions</td></tr>';
+  document.querySelector("#posTable tbody").innerHTML = posRows || '<tr><td colspan="4" class="muted">no open positions</td></tr>';
 
   // 2026-08-26 (op verzoek van Rob: "ik wil 5 zichtbaar hebben en de mogelijkheid oudere te
   // zien"): de server stuurt nu tot 60 trades mee (was 10) - hier standaard de nieuwste 5 tonen
