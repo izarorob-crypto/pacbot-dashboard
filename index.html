@@ -153,7 +153,14 @@ fetch("data.json?t=" + Date.now())
   .catch(function(e) { document.getElementById("err").style.display = "block"; document.getElementById("updated").textContent = ""; });
 
 function render(d) {
-  document.getElementById("updated").textContent = "updated: " + d.updated;
+  // 2026-09-13 (taak #140 - Rob zag live P/L in MT4 afwijken van het dashboard): "updated"
+  // hierboven is puur het moment dat DEZE PAGINA gebouwd/gepusht is, niet het moment waarop de
+  // account/positie-cijfers zelf zijn afgelezen - die twee kunnen uiteenlopen. account.asOf komt
+  // rechtstreeks uit de tijdkolom van de MT4-copier-logregel waar de live cijfers vandaan komen
+  // (zie Get-PacBotMT4LiveState in PacBot_AutoDeploy.ps1) - apart tonen zodat Rob altijd kan zien
+  // hoe vers de P/L die hij bekijkt daadwerkelijk is, i.p.v. dat aan te nemen.
+  var asOfTxt = (d.account && d.account.asOf) ? (" | live data as of: " + d.account.asOf) : "";
+  document.getElementById("updated").textContent = "updated: " + d.updated + asOfTxt;
 
   var k = d.kpis || { netPnlAllTime: 0, totalTrades: 0, wins: 0, losses: 0, winRate: 0, profitFactor: 0 };
   var reasonBd = d.reasonBreakdown || [];
