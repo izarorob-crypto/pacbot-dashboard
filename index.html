@@ -75,6 +75,12 @@
 </div>
 
 <div class="panel">
+  <h2>Per Pair</h2>
+  <p class="panelSub">All-time P/L, win rate and worst intraday drawdown per symbol (survives closed stacks - unlike the live DD% badge above)</p>
+  <div class="grid" id="pairCards"></div>
+</div>
+
+<div class="panel">
   <div class="panelHead">
     <div><h2>Equity Curve</h2><p class="panelSub">Running total of realized profit/loss</p></div>
     <div class="badge"><div class="big" id="eqCurrentVal">-</div><div class="tiny">current total</div></div>
@@ -229,6 +235,20 @@ function render(d) {
     var pct = Math.max(0, Math.min(100, g.pct));
     return '<div class="gaugeWrap"><p class="gaugeLabel">' + g.label + '</p><p class="gaugeValue">' + g.text + '</p><div class="gaugeBar"><div class="gaugeFill" style="width:' + pct + '%;background:' + gaugeColor(pct) + '"></div></div></div>';
   }).join("");
+
+  // 2026-09-13 (op verzoek van Rob, taak #141/#158/#162: "ik mis nog een per pair name card" +
+  // "nu lijkt het alsof Xauusd nooit een max DD% heeft geraakt"): een kaart per symbool met naam,
+  // all-time P/L, win rate Ã©n worstDD (het diepste dieptepunt/MAE dat dit paar ooit onderweg raakte,
+  // ook als de stack zelf alweer winstgevend gesloten is - zie server-side changelog bij
+  // $symbolBreakdown in Build-PacBotDashboardSnapshot). Gesorteerd op P/L, net als de bar chart.
+  var pairSorted = (d.symbolBreakdown || []).slice().sort(function(x, y) { return y.pnl - x.pnl; });
+  document.getElementById("pairCards").innerHTML = pairSorted.map(function(s) {
+    var wdd = (typeof s.worstDD === "number") ? s.worstDD : 0;
+    var wddColor = wdd <= -10 ? "#f0475a" : (wdd <= -3 ? "#fbbf24" : "#8a94a6");
+    return '<div class="card"><p class="label">' + s.symbol + '</p><p class="value ' + pnlClass(s.pnl) + '">' + fmtUsd(s.pnl) + '</p>' +
+      '<p class="sub">' + s.count + ' trades &middot; ' + fmt(s.winRate) + '% win</p>' +
+      '<p class="sub" style="color:' + wddColor + '">Worst intraday DD: ' + fmtUsd(wdd) + '</p></div>';
+  }).join("") || '<div class="muted">no closed trades yet</div>';
 
   var reasonRows = reasonBd.map(function(r) {
     return "<tr><td>" + reasonLabel(r.reason) + "</td><td class=\"muted\">" + r.count + "</td><td style=\"text-align:right\" class=\"" + pnlClass(r.pnl) + "\">" + fmtUsd(r.pnl) + "</td></tr>";
