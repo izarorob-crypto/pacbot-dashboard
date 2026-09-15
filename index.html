@@ -39,9 +39,18 @@
   #err { display:none; color: var(--red); font-size:13px; }
   .gaugeWrap { margin-bottom: 4px; }
   .gaugeLabel { font-size: 11px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 6px; }
-  .gaugeValue { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  .gaugeValue { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .gaugeSub { font-size: 11px; color: var(--sub); margin: 0 0 8px; }
   .gaugeBar { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
   .gaugeFill { height: 100%; border-radius: 4px; }
+  .sessionWrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .sessionDonut { position: relative; flex-shrink: 0; width: 160px; height: 160px; }
+  .sessionLegend { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 140px; }
+  .sessionLegend .row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; }
+  .sessionLegend .row .name { display: flex; align-items: center; gap: 8px; }
+  .reasonBar { margin-bottom: 12px; }
+  .reasonBar:last-child { margin-bottom: 0; }
+  .reasonBarHead { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
   .chartsGrid { display: grid; grid-template-columns: 1fr; gap: 16px; }
   .legendRow { display: flex; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--sub); flex-wrap: wrap; }
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
@@ -103,7 +112,12 @@
 
 <div class="chartsGrid">
   <div class="panel"><h2>P/L by Symbol</h2><p class="panelSub">Realized profit/loss per instrument</p><canvas id="symbolChart"></canvas></div>
-  <div class="panel"><h2>Trades by Session</h2><p class="panelSub">Asia / London / London-NY / NY</p><canvas id="sessionChart"></canvas></div>
+  <div class="panel"><h2>Trades by Session</h2><p class="panelSub">Asia / London / London-NY / NY</p>
+    <div class="sessionWrap">
+      <div class="sessionDonut"><canvas id="sessionChart"></canvas></div>
+      <div class="sessionLegend" id="sessionLegend"></div>
+    </div>
+  </div>
 </div>
 
 <div class="panel">
@@ -117,7 +131,7 @@
   </div>
   <canvas id="dailyChart"></canvas>
 </div>
-<div class="panel"><h2>Close Reason Breakdown</h2><table id="reasonTable"><thead><tr><th>Reason</th><th>Trades</th><th style="text-align:right">P/L</th></tr></thead><tbody></tbody></table></div>
+<div class="panel"><h2>Close Reason Breakdown</h2><p class="panelSub">Top 4 reasons by trade count, rest grouped as Other</p><div id="reasonBars"></div></div>
 <div class="panel"><h2>Open Positions</h2><table id="posTable"><thead><tr><th>Pair</th><th>Lot</th><th style="text-align:right">P/L</th><th style="text-align:right">DD%</th></tr></thead><tbody></tbody></table></div>
 <div class="panel">
   <div class="panelHead">
@@ -176,6 +190,11 @@ function render(d) {
   var asOfTxt = (d.account && d.account.asOf) ? (" | live data as of: " + d.account.asOf) : "";
   document.getElementById("updated").textContent = "updated: " + d.updated + asOfTxt;
 
+  // 2026-09-16: verplaatst naar het begin van render() (stond eerder pas rond de equity-curve-code,
+  // ver na de eerste plek - de nieuwe Close Reason-balken hieronder - die de kleuren nodig heeft;
+  // JS-var-hoisting zorgt er dan wel voor dat de naam bestaat, maar de WAARDE is pas na de originele
+  // regel gezet, dus die balken kregen ongedefinieerd (transparant) als kleur totdat dit verplaatst is).
+  var COL_SUB = "#8b8fa3", COL_BORDER = "#252838", COL_GREEN = "#34d399", COL_RED = "#f0475a", COL_ACCENT = "#7c6cf6", COL_ACCENT2 = "#5b8def", COL_AMBER = "#fbbf24";
   var k = d.kpis || { netPnlAllTime: 0, totalTrades: 0, wins: 0, losses: 0, winRate: 0, profitFactor: 0 };
   var reasonBd = d.reasonBreakdown || [];
   // 2026-08-21 FIX: winsCount/lossCount komen nu rechtstreeks van de server (k.wins/k.losses,
@@ -227,21 +246,41 @@ function render(d) {
     return '<div class="card"><p class="label">' + c.label + '</p><p class="value ' + c.cls + '">' + c.value + '</p>' + (c.sub ? '<p class="sub">' + c.sub + '</p>' : '') + '</div>';
   }).join("");
 
-  // Gauges: winrate, profit-factor genormaliseerd naar een 0-100% balk (pf van 2.0 = 100%), grootste winst-symbool-aandeel
-  var pfPct = Math.min(100, (k.profitFactor / 2.0) * 100);
+  // 2026-09-16 (op verzoek van Rob, dashboard-brainstorm): de oude gauges (Win rate + Profit
+  // factor) waren een exacte duplicatie van de "All-time"-kaarten hierboven - zelfde cijfers, twee
+  // keer getoond. Vervangen door drie NIEUWE, niet-overlappende cijfers: Expectancy/Trade (gemiddeld
+  // resultaat per trade, INCLUSIEF verliezen - het eerlijkste "loont dit systeem gemiddeld"-cijfer),
+  // Profitable Days (hoeveel van de trading-dagen per saldo positief sloten - andere invalshoek dan
+  // per-trade winrate) en Best Symbol (bleef, want stond niet elders dubbel). "Streak" (huidige
+  // winst/verlies-reeks) is bewust NIET toegevoegd - Rob: "dat huidige streak zegt mij niets".
+  // Best Symbol blijft ongewijzigd berekend (hoogste all-time P/L uit symbolBreakdown).
   var topSymbolShare = 0;
   if (d.symbolBreakdown && d.symbolBreakdown.length) {
     var sorted = d.symbolBreakdown.slice().sort(function(x, y) { return y.pnl - x.pnl; });
     topSymbolShare = sorted[0];
   }
+  // Expectancy/trade: netPnlAllTime / totalTrades (dus verliezende trades tellen gewoon mee, geen
+  // aparte winst-only middeling). Balkvulling: t.o.v. de gemiddelde winst (avgWin) - een expectancy
+  // die de gemiddelde winst nadert (>=55%) is sterk, ver eronder (<40%) is zwak. Puur visueel, de
+  // exacte $-waarde in de tekst erboven is het harde cijfer.
+  var expectancy = k.totalTrades > 0 ? (k.netPnlAllTime / k.totalTrades) : 0;
+  var expectancyPct = avgWin > 0 ? Math.max(0, Math.min(100, (expectancy / avgWin) * 100)) : 0;
+  // Profitable days: uit d.dailyPnl (per-dag P/L, zie dailyPnl in Build-PacBotDashboardSnapshot) -
+  // dat venster beslaat al de volledige betrouwbare projectgeschiedenis sinds 2026-08-19 (de
+  // 45-dagen-cap daar is ruim boven het aantal trading-dagen tot nu toe), dus dit is ECHT
+  // all-time, geen slidend venster - zie Rob's vraag hierover (moet vanaf het begin van het
+  // project tellen, niet alleen recente dagen).
+  var dailyAll = d.dailyPnl || [];
+  var profitableDaysCount = dailyAll.filter(function(x) { return x.pnl > 0; }).length;
+  var profitableDaysPct = dailyAll.length > 0 ? (profitableDaysCount / dailyAll.length) * 100 : 0;
   var gauges = [
-    { label: "Win rate all-time", pct: k.winRate, text: fmt(k.winRate) + "%" },
-    { label: "Profit factor (scale to 2.0)", pct: pfPct, text: fmt(k.profitFactor) },
-    { label: "Best symbol: " + (topSymbolShare ? topSymbolShare.symbol : "-"), pct: topSymbolShare ? topSymbolShare.winRate : 0, text: topSymbolShare ? (fmtUsd(topSymbolShare.pnl) + " (" + topSymbolShare.winRate + "% wr)") : "-" }
+    { label: "Expectancy / Trade", pct: expectancyPct, text: fmtUsd(expectancy), sub: "per trade, incl. losses" },
+    { label: "Profitable Days", pct: profitableDaysPct, text: fmt(profitableDaysPct) + "%", sub: profitableDaysCount + " of " + dailyAll.length + " trading days" },
+    { label: "Best Symbol", pct: topSymbolShare ? topSymbolShare.winRate : 0, text: topSymbolShare ? topSymbolShare.symbol : "-", sub: topSymbolShare ? (fmtUsd(topSymbolShare.pnl) + " Â· " + fmt(topSymbolShare.winRate) + "% wr") : "" }
   ];
   document.getElementById("gauges").innerHTML = gauges.map(function(g) {
     var pct = Math.max(0, Math.min(100, g.pct));
-    return '<div class="gaugeWrap"><p class="gaugeLabel">' + g.label + '</p><p class="gaugeValue">' + g.text + '</p><div class="gaugeBar"><div class="gaugeFill" style="width:' + pct + '%;background:' + gaugeColor(pct) + '"></div></div></div>';
+    return '<div class="gaugeWrap"><p class="gaugeLabel">' + g.label + '</p><p class="gaugeValue">' + g.text + '</p><p class="gaugeSub">' + g.sub + '</p><div class="gaugeBar"><div class="gaugeFill" style="width:' + pct + '%;background:' + gaugeColor(pct) + '"></div></div></div>';
   }).join("");
 
   // 2026-09-13 (op verzoek van Rob, taak #141/#158/#162: "ik mis nog een per pair name card" +
@@ -272,10 +311,29 @@ function render(d) {
       '<p class="sub" style="color:' + wddColor + '">All-time worst intraday DD: ' + fmtUsd(wdd) + '</p></div>';
   }).join("") || '<div class="muted">no closed trades yet</div>';
 
-  var reasonRows = reasonBd.map(function(r) {
-    return "<tr><td>" + reasonLabel(r.reason) + "</td><td class=\"muted\">" + r.count + "</td><td style=\"text-align:right\" class=\"" + pnlClass(r.pnl) + "\">" + fmtUsd(r.pnl) + "</td></tr>";
-  }).join("");
-  document.querySelector("#reasonTable tbody").innerHTML = reasonRows || '<tr><td class="muted">no closed trades yet</td></tr>';
+  // 2026-09-16 (op verzoek van Rob, dashboard-brainstorm): van tabel naar horizontale balken -
+  // visueel meteen duidelijk welke sluitreden domineert, i.p.v. cijfers moeten aflezen. trailing-stop
+  // is verreweg de grootste categorie (normale winstneming), waardoor de overige redenen op een
+  // lineaire schaal bijna onzichtbaar zouden worden - vandaar (a) een minimumbreedte zodat elke balk
+  // zichtbaar blijft, en (b) alleen de top 4 redenen (op aantal trades) los getoond, de rest
+  // samengevoegd tot "Other (Nx)" zodat het overzicht niet dichtslibt naarmate er nieuwe, zeldzame
+  // sluitredenen bijkomen. Rob zag dit exact zo als mockup en akkoord: "ik vind het netjes zo".
+  var reasonSorted = reasonBd.slice().sort(function(x, y) { return y.count - x.count; });
+  var reasonTop = reasonSorted.slice(0, 4);
+  var reasonRest = reasonSorted.slice(4);
+  var reasonRows = reasonTop.slice();
+  if (reasonRest.length > 0) {
+    var restCount = reasonRest.reduce(function(sum, r) { return sum + r.count; }, 0);
+    var restPnl = reasonRest.reduce(function(sum, r) { return sum + r.pnl; }, 0);
+    reasonRows.push({ reason: "Other (" + reasonRest.length + " reasons)", count: restCount, pnl: restPnl, isOther: true });
+  }
+  var reasonMaxCount = reasonRows.length > 0 ? Math.max.apply(null, reasonRows.map(function(r) { return r.count; })) : 0;
+  document.getElementById("reasonBars").innerHTML = reasonRows.length > 0 ? reasonRows.map(function(r) {
+    var label = r.isOther ? r.reason : reasonLabel(r.reason);
+    var widthPct = reasonMaxCount > 0 ? Math.max(3, (r.count / reasonMaxCount) * 100) : 3;
+    var barColor = r.pnl >= 0 ? COL_GREEN : COL_RED;
+    return '<div class="reasonBar"><div class="reasonBarHead"><span>' + label + '</span><span class="muted">' + r.count + ' trades &middot; <span class="' + pnlClass(r.pnl) + '">' + fmtUsd(r.pnl) + '</span></span></div><div class="gaugeBar"><div class="gaugeFill" style="width:' + widthPct + '%;background:' + barColor + '"></div></div></div>';
+  }).join("") : '<div class="muted">no closed trades yet</div>';
 
   var posRows = (d.openPositions || []).map(function(p) {
     var dd = (typeof p.ddPercent === "number") ? p.ddPercent : 0;
@@ -316,7 +374,6 @@ function render(d) {
     renderClosedTable();
   });
 
-  var COL_SUB = "#8b8fa3", COL_BORDER = "#252838", COL_GREEN = "#34d399", COL_RED = "#f0475a", COL_ACCENT = "#7c6cf6", COL_ACCENT2 = "#5b8def";
   var MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   function shortDate(t) {
     var m = /^(\d{4})\.(\d{2})\.(\d{2})/.exec(t || "");
@@ -607,23 +664,51 @@ function render(d) {
   });
   renderEquityChart();
 
+  // 2026-09-16 (op verzoek van Rob, dashboard-brainstorm): van staafdiagram naar donut - de
+  // verdeling over sessies is een "welk deel van het geheel"-vraag, daar leent een donut zich
+  // beter voor dan een staafdiagram (dat onafhankelijke waarden suggereert). Kleur staat hier
+  // vast per sessie (niet win/verlies-gebaseerd zoals de oude bar chart deed) - een slice-kleur
+  // die bij elke ververisng kan omslaan (bv. Asia groen->rood als de P/L kantelt) zou verwarrend
+  // zijn; de P/L per sessie staat nog gewoon in de legenda en tooltip.
   var sessLabels = (d.sessionBreakdown || []).map(function(s) { return s.session; });
   var sessCounts = (d.sessionBreakdown || []).map(function(s) { return s.count; });
   var sessPnl = (d.sessionBreakdown || []).map(function(s) { return s.pnl; });
+  var sessTotal = sessCounts.reduce(function(sum, c) { return sum + c; }, 0);
+  var sessColors = [COL_ACCENT, COL_ACCENT2, COL_GREEN, COL_AMBER];
+  var sessCenterTextPlugin = {
+    id: "sessCenterText",
+    afterDraw: function(chart) {
+      if (chart.canvas.id !== "sessionChart") return;
+      var ctx = chart.ctx, area = chart.chartArea;
+      var x = area.left + (area.right - area.left) / 2, y = area.top + (area.bottom - area.top) / 2;
+      ctx.save();
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#e8eaf0"; ctx.font = "700 20px system-ui, sans-serif";
+      ctx.fillText(String(sessTotal), x, y - 8);
+      ctx.fillStyle = COL_SUB; ctx.font = "11px system-ui, sans-serif";
+      ctx.fillText("trades", x, y + 12);
+      ctx.restore();
+    }
+  };
   new Chart(document.getElementById("sessionChart"), {
-    type: "bar",
-    data: { labels: sessLabels, datasets: [{ data: sessCounts, backgroundColor: sessPnl.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
+    type: "doughnut",
+    data: { labels: sessLabels, datasets: [{ data: sessCounts, backgroundColor: sessColors, borderColor: "#12141c", borderWidth: 2 }] },
+    plugins: [sessCenterTextPlugin],
     options: {
+      cutout: "68%",
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: function(item) { return item.parsed.y + " trades, P/L " + fmtUsd(sessPnl[item.dataIndex]); } } }
-      },
-      scales: {
-        x: { ticks: { color: COL_SUB, font: { size: 10 } }, grid: { display: false } },
-        y: { ticks: { color: COL_SUB }, grid: { color: COL_BORDER } }
+        tooltip: { callbacks: { label: function(item) {
+          var pct = sessTotal > 0 ? fmt((item.parsed / sessTotal) * 100) : "0";
+          return item.label + ": " + item.parsed + " trades (" + pct + "%), P/L " + fmtUsd(sessPnl[item.dataIndex]);
+        } } }
       }
     }
   });
+  document.getElementById("sessionLegend").innerHTML = sessLabels.map(function(label, i) {
+    var pct = sessTotal > 0 ? fmt((sessCounts[i] / sessTotal) * 100) : "0";
+    return '<div class="row"><span class="name"><span class="dot" style="background:' + sessColors[i % sessColors.length] + '"></span>' + label + '</span><span class="muted">' + sessCounts[i] + ' <strong style="color:var(--text)">' + pct + '%</strong></span></div>';
+  }).join("") || '<div class="muted">no closed trades yet</div>';
 }
 </script>
 </body>
