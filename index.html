@@ -137,19 +137,27 @@ function fmtUsd(n) { n = n || 0; return (n >= 0 ? "+$" : "-$") + Math.abs(Math.r
 function pnlClass(n) { return n > 0 ? "pos" : (n < 0 ? "neg" : "neutral"); }
 function gaugeColor(pct) { return pct >= 55 ? "#34d399" : (pct >= 40 ? "#fbbf24" : "#f0475a"); }
 // Sluitreden-tokens komen als losse Engelse woorden uit de MT5/MT4-logs (zie GetCloseReason() in
-// PacBot_Custom_EA.mq5) - hier vertaald naar leesbare labels voor het dashboard. "unrecorded" is
-// de default voor elke close van VOOR de reden-tracking bestond (toegevoegd 2026-08-20) - dat is
-// gÃ©Ã©n bug, gewoon nooit vastgelegde historie, dus expliciet zo gelabeld i.p.v. een vaag "unknown".
+// PacBot_Custom_EA.mq5) - hier vertaald naar leesbare labels voor het dashboard.
+// 2026-09-16 (op verzoek van Rob: nette, correcte labels, PROJECT-BREED - dus zelfde tekst als
+// Get-PacBotReasonLabel in PacBot_AutoDeploy.ps1, die de Telegram-berichten labelt. Bij een
+// nieuwe/gewijzigde reden-token ALTIJD BEIDE plekken bijwerken, ze kunnen elkaar niet aanroepen
+// want deze draait in de browser en die server-side). Title Case i.p.v. sentence case, en
+// cross-credit/stuck-stack-ease/manual-extern-retroactief toegevoegd - die ontbraken hier
+// eerder, waardoor ze zonder vertaling als ruw token op het dashboard verschenen.
 var REASON_LABELS = {
-  "trailing-stop": "Trailing stop",
-  "hard-stop-loss": "Hard stop-loss",
-  "weekend-close": "Weekend close",
-  "news-filter": "News filter",
-  "max-rescue-stop-loss": "Max rescue stop-loss",
-  "long-open-eased-close": "Long-open easing (24-72h)",
-  "long-open-force-close": "Long-open force-close (5d)",
-  "pretarget-profit-lock": "Early profit lock (pullback before target)",
-  "unrecorded": "Not tracked (before Aug 20)"
+  "trailing-stop": "Trailing Stop",
+  "hard-stop-loss": "Hard Stop-Loss",
+  "weekend-close": "Weekend Close",
+  "news-filter": "News Filter",
+  "max-rescue-stop-loss": "Max Rescue Stop-Loss",
+  "long-open-eased-close": "Long-Open Easing (24-72h)",
+  "long-open-force-close": "Long-Open Force-Close (5d)",
+  "pretarget-profit-lock": "Early Profit Lock (Pullback Before Target)",
+  "unrecorded": "Unrecorded",
+  "cross-credit": "Cross-Credit Reduce",
+  "stuck-stack-ease": "Stuck-Stack Ease",
+  "manual-extern-retroactief": "Manual Close (Retroactive)",
+  "unknown": "Unknown"
 };
 function reasonLabel(token) { return REASON_LABELS[token] || token; }
 
