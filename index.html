@@ -45,15 +45,19 @@
   .gaugeFill { height: 100%; border-radius: 4px; }
   .sessionWrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
   .sessionDonut { position: relative; flex-shrink: 0; width: 160px; height: 160px; }
-  .sessionLegend { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 140px; }
-  .sessionLegend .row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; }
-  .sessionLegend .row .name { display: flex; align-items: center; gap: 8px; }
+  .sessionLegend { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+  .sessionLegend .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+  .sessionLegend .row .name { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+  .sessionLegend .row .name .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sessionLegend .row .muted { white-space: nowrap; flex-shrink: 0; }
   .reasonBar { margin-bottom: 12px; }
   .reasonBar:last-child { margin-bottom: 0; }
-  .reasonBarHead { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .reasonBarHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; font-size: 11.5px; margin-bottom: 4px; }
+  .reasonBarHead > span:first-child { flex: 1; min-width: 0; }
+  .reasonBarHead .muted { white-space: nowrap; flex-shrink: 0; }
   .chartsGrid { display: grid; grid-template-columns: 1fr; gap: 16px; }
   .legendRow { display: flex; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--sub); flex-wrap: wrap; }
-  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; flex-shrink: 0; }
   .eqControls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
   .pillGroup { display: flex; gap: 2px; background: var(--panel-2); border-radius: 8px; padding: 2px; }
   .pillBtn { font-size: 11px; padding: 4px 10px; border: none; border-radius: 6px; background: transparent; color: var(--sub); cursor: pointer; font-family: inherit; }
@@ -78,7 +82,7 @@
 <div class="sectionLabel">Account now</div>
 <div class="grid" id="cards"></div>
 
-<div class="panel">
+<div class="panel" style="margin-top: 16px;">
   <h2>Performance gauges (all-time)</h2>
   <div class="grid" id="gauges"></div>
 </div>
@@ -132,7 +136,7 @@
   <canvas id="dailyChart"></canvas>
 </div>
 <div class="panel"><h2>Close Reason Breakdown</h2><p class="panelSub">Top 4 reasons by trade count, rest grouped as Other</p><div id="reasonBars"></div></div>
-<div class="panel"><h2>Open Positions</h2><table id="posTable"><thead><tr><th>Pair</th><th>Lot</th><th style="text-align:right">P/L</th><th style="text-align:right">DD%</th></tr></thead><tbody></tbody></table></div>
+<div class="panel"><h2>Open Positions</h2><table id="posTable"><thead><tr><th>Pair</th><th>Lot</th><th style="text-align:right">P/L</th></tr></thead><tbody></tbody></table></div>
 <div class="panel">
   <div class="panelHead">
     <div><h2>Recent Activity</h2><p class="panelSub" id="closedSub">Last 5 closed trades</p></div>
@@ -276,7 +280,7 @@ function render(d) {
   var gauges = [
     { label: "Expectancy / Trade", pct: expectancyPct, text: fmtUsd(expectancy), sub: "per trade, incl. losses" },
     { label: "Profitable Days", pct: profitableDaysPct, text: fmt(profitableDaysPct) + "%", sub: profitableDaysCount + " of " + dailyAll.length + " trading days" },
-    { label: "Best Symbol", pct: topSymbolShare ? topSymbolShare.winRate : 0, text: topSymbolShare ? topSymbolShare.symbol : "-", sub: topSymbolShare ? (fmtUsd(topSymbolShare.pnl) + " Â· " + fmt(topSymbolShare.winRate) + "% wr") : "" }
+    { label: "Best Symbol", pct: topSymbolShare ? topSymbolShare.winRate : 0, text: topSymbolShare ? topSymbolShare.symbol : "-", sub: topSymbolShare ? (fmtUsd(topSymbolShare.pnl) + " &middot; " + fmt(topSymbolShare.winRate) + "% wr") : "" }
   ];
   document.getElementById("gauges").innerHTML = gauges.map(function(g) {
     var pct = Math.max(0, Math.min(100, g.pct));
@@ -335,12 +339,12 @@ function render(d) {
     return '<div class="reasonBar"><div class="reasonBarHead"><span>' + label + '</span><span class="muted">' + r.count + ' trades &middot; <span class="' + pnlClass(r.pnl) + '">' + fmtUsd(r.pnl) + '</span></span></div><div class="gaugeBar"><div class="gaugeFill" style="width:' + widthPct + '%;background:' + barColor + '"></div></div></div>';
   }).join("") : '<div class="muted">no closed trades yet</div>';
 
+  // 2026-09-15 (op verzoek van Rob): DD%-kolom hier weggehaald - stond al bij "Per Pair" hierboven
+  // (live drawdown %) en was hier altijd 0.0% dus voegde niets toe.
   var posRows = (d.openPositions || []).map(function(p) {
-    var dd = (typeof p.ddPercent === "number") ? p.ddPercent : 0;
-    var ddColor = dd >= 50 ? "#f0475a" : (dd >= 20 ? "#fbbf24" : "#8a94a6");
-    return "<tr><td>" + p.symbol + " " + p.direction + "</td><td>" + p.lot + "</td><td style=\"text-align:right\" class=\"" + pnlClass(p.pnl) + "\">" + fmtUsd(p.pnl) + "</td><td style=\"text-align:right;color:" + ddColor + "\">" + dd.toFixed(1) + "%</td></tr>";
+    return "<tr><td>" + p.symbol + " " + p.direction + "</td><td>" + p.lot + "</td><td style=\"text-align:right\" class=\"" + pnlClass(p.pnl) + "\">" + fmtUsd(p.pnl) + "</td></tr>";
   }).join("");
-  document.querySelector("#posTable tbody").innerHTML = posRows || '<tr><td colspan="4" class="muted">no open positions</td></tr>';
+  document.querySelector("#posTable tbody").innerHTML = posRows || '<tr><td colspan="3" class="muted">no open positions</td></tr>';
 
   // 2026-08-26 (op verzoek van Rob: "ik wil 5 zichtbaar hebben en de mogelijkheid oudere te
   // zien"): de server stuurt nu tot 60 trades mee (was 10) - hier standaard de nieuwste 5 tonen
@@ -493,8 +497,13 @@ function render(d) {
     renderDailyChart();
   });
 
-  var symLabels = (d.symbolBreakdown || []).map(function(s) { return s.symbol; });
-  var symValues = (d.symbolBreakdown || []).map(function(s) { return s.pnl; });
+  // 2026-09-15 (op verzoek van Rob): altijd live sorteren op actuele all-time P/L (slecht -> goed,
+  // links -> rechts) i.p.v. de ongesorteerde server-volgorde, zodat de grootste staaf niet zomaar
+  // ergens in het midden kan staan. De dashboard-pagina ververst zichzelf niet automatisch (fetch
+  // gebeurt alleen bij page-load), dus dit "springt" nooit terwijl iemand zit te kijken.
+  var symSorted = (d.symbolBreakdown || []).slice().sort(function(x, y) { return x.pnl - y.pnl; });
+  var symLabels = symSorted.map(function(s) { return s.symbol; });
+  var symValues = symSorted.map(function(s) { return s.pnl; });
   new Chart(document.getElementById("symbolChart"), {
     type: "bar",
     data: { labels: symLabels, datasets: [{ data: symValues, backgroundColor: symValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
@@ -707,7 +716,7 @@ function render(d) {
   });
   document.getElementById("sessionLegend").innerHTML = sessLabels.map(function(label, i) {
     var pct = sessTotal > 0 ? fmt((sessCounts[i] / sessTotal) * 100) : "0";
-    return '<div class="row"><span class="name"><span class="dot" style="background:' + sessColors[i % sessColors.length] + '"></span>' + label + '</span><span class="muted">' + sessCounts[i] + ' <strong style="color:var(--text)">' + pct + '%</strong></span></div>';
+    return '<div class="row"><span class="name"><span class="dot" style="background:' + sessColors[i % sessColors.length] + '"></span><span class="lbl">' + label + '</span></span><span class="muted">' + sessCounts[i] + ' <strong style="color:var(--text)">' + pct + '%</strong></span></div>';
   }).join("") || '<div class="muted">no closed trades yet</div>';
 }
 </script>
