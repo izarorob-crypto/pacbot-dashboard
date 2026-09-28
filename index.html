@@ -584,13 +584,30 @@ function render(d) {
       if (dd < maxDD) { maxDD = dd; maxDDIdx = i; }
     });
     var acctBalance = (d.account && d.account.balance) ? d.account.balance : 0;
+
+    // 2026-09-28 (op verzoek van Rob): "Biggest pullback" toonde tot nu toe het piek-naar-dal-
+    // verschil van de GECUMULEERDE gerealiseerde-winst-curve hierboven (maxDD) - dat kan meerdere
+    // trades op Ã©Ã©n dag bij elkaar optellen. Rob wil i.p.v. daarvan het dieptepunt van Ã‰Ã‰N LOS
+    // ticket ooit (bv. "XAUUSD's slechtste losse ticket ooit was ~-$0.87") - dat komt nu van de
+    // server (d.worstTicketTroughOverall, zelfde TICKET_CLOSE-bron als de per-paar-kaarten). Valt
+    // terug op de oude maxDD-curve-berekening als die data er nog niet is (bv. vlak na een
+    // dashboard-upgrade, voordat er al TICKET_CLOSE-data verzameld is).
+    var wt = d.worstTicketTroughOverall;
+    var pullbackVal = wt ? wt.value : maxDD;
+    var pullbackLabelHtml = "";
+    if (wt) {
+      var wtDt = parseEqTime(wt.time);
+      pullbackLabelHtml = " (" + (wt.symbol || "") + (wtDt ? ", " + eqDailyLabel(wtDt) : "") + ")";
+    } else if (maxDDIdx >= 0 && eqLabels[maxDDIdx]) {
+      pullbackLabelHtml = " (" + eqLabels[maxDDIdx] + ")";
+    }
     var ddPctHtml = "";
-    if (acctBalance > 0 && maxDD < 0) {
-      var ddPct = (maxDD / acctBalance) * 100;
+    if (acctBalance > 0 && pullbackVal < 0) {
+      var ddPct = (pullbackVal / acctBalance) * 100;
       ddPctHtml = '<span style="color:' + COL_ACCENT + ';font-weight:600">' + fmt(ddPct) + '% of balance</span>';
     }
-    var legendHtml = '<span><span class="dot" style="background:' + COL_RED + '"></span>Biggest pullback: ' + fmtUsd(maxDD) +
-      (maxDDIdx >= 0 && eqLabels[maxDDIdx] ? " (" + eqLabels[maxDDIdx] + ")" : "") + '</span>' +
+    var legendHtml = '<span><span class="dot" style="background:' + COL_RED + '"></span>Biggest pullback: ' + fmtUsd(pullbackVal) +
+      pullbackLabelHtml + '</span>' +
       ddPctHtml +
       '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>';
     document.getElementById("eqLegend").innerHTML = eqValues.length ? legendHtml : "";
