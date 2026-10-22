@@ -402,7 +402,7 @@ function render(d) {
 
   function renderDailyChart() {
   var page = dailyPageSlice();
-  var dayLabels = page.map(function(x) { return shortDate(x.date); });
+  var dayLabels = page.map(function(x) { return [shortDate(x.date), x.count + " trades"]; });
   var dayValues = page.map(function(x) { return x.pnl; });
   var dayCounts = page.map(function(x) { return x.count; });
   // Value-label plugin: schrijft het $-bedrag (+ aantal trades) altijd BOVEN de balk, ook als
@@ -441,12 +441,10 @@ function render(d) {
         var isNeg = v < 0;
         var valueY = isNeg ? (bar.y + 14) : (bar.y - 14);
         var countY = isNeg ? (bar.y + 30) : (bar.y - 30);
+        // 2026-10-22 (Rob: "Daily P/L moet netter"): alleen het bedrag bij de balk; het aantal trades staat nu als 2e regel
+        // onder de datum op de x-as (geen overlappende tekst meer).
         ctx.fillStyle = v >= 0 ? COL_GREEN : COL_RED;
-        ctx.fillText(fmtUsd(v), bar.x, valueY);
-        ctx.fillStyle = COL_SUB;
-        ctx.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
-        ctx.fillText(dayCounts[i] + " trades", bar.x, countY);
-        ctx.font = "600 11px -apple-system, Segoe UI, Roboto, sans-serif";
+        ctx.fillText(fmtUsd(v), bar.x, isNeg ? (bar.y + 16) : (bar.y - 8));
       });
       ctx.restore();
     }
@@ -454,13 +452,13 @@ function render(d) {
   if (dailyChartInstance) { dailyChartInstance.destroy(); }
   dailyChartInstance = new Chart(document.getElementById("dailyChart"), {
     type: "bar",
-    data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4 }] },
+    data: { labels: dayLabels, datasets: [{ data: dayValues, backgroundColor: dayValues.map(function(v) { return v >= 0 ? COL_GREEN : COL_RED; }), borderRadius: 4, maxBarThickness: 64 }] },
     plugins: [dayValueLabelPlugin],
     options: {
       // 2026-08-25: bottom-padding toegevoegd (mirror van de bestaande top:26) - anders hebben
       // de omgedraaide labels bij een grotere verlies-dag geen ruimte en worden ze alsnog
       // afgesneden door de onderkant van de canvas.
-      layout: { padding: { top: 32, bottom: 26 } },
+      layout: { padding: { top: 24, bottom: 8 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: function(item) { return fmtUsd(item.parsed.y) + " (" + dayCounts[item.dataIndex] + " trades)"; } } }
@@ -477,7 +475,7 @@ function render(d) {
         // -2 bleek in de praktijk nog niet genoeg lucht voor een heel kleine verlies-balk zoals
         // -$0.44 (countY = bar.y+30 kwam nog net over de as-tekst heen). -5 geeft ~60% meer
         // pixel-ruimte onder de nullijn dan -2, ruim voldoende voor de 30px-offset + teksthoogte.
-        y: { suggestedMin: -5, ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
+        y: { grace: "15%", ticks: { color: COL_SUB, callback: function(v) { return (v >= 0 ? "$" : "-$") + Math.abs(v); } }, grid: { color: COL_BORDER } }
       }
     }
   });
