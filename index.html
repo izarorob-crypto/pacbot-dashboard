@@ -95,7 +95,7 @@
 
 <div class="panel">
   <div class="panelHead">
-    <div><h2>Equity Curve</h2><p class="panelSub">Running total of realized profit/loss</p></div>
+    <div><h2>Equity Curve</h2><p class="panelSub" id="eqSourceLine">Running total of realized profit/loss</p></div>
     <div class="badge"><div class="big" id="eqCurrentVal">-</div><div class="tiny">current total</div></div>
   </div>
   <div class="eqControls">
@@ -555,6 +555,8 @@ function render(d) {
     return eqDailyLabel(dt);
   }
 
+  // 2026-11-04: bron van de curve tonen (MT4-accounthistorie = tot op de cent)
+  try { if (d.historyCheck) { var hc = d.historyCheck; document.getElementById("eqSourceLine").textContent = "Realized P/L from MT4 account history (profit + swap + commission, incl. broker summary orders) - exported " + hc.exportedAt; } } catch (e) {}
   var eqRawPoints = (d.equityCurve || []).map(function(e) { return { dt: parseEqTime(e.time), cum: e.cum, time: e.time }; }).filter(function(p) { return p.dt; });
   var eqWindowVal = "all";
 
