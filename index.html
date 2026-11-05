@@ -557,7 +557,8 @@ function render(d) {
 
   // 2026-11-04: bron van de curve tonen (MT4-accounthistorie = tot op de cent)
   try { if (d.historyCheck) { var hc = d.historyCheck; document.getElementById("eqSourceLine").textContent = "Realized P/L from MT4 account history (profit + swap + commission, incl. broker summary orders) - exported " + hc.exportedAt; } } catch (e) {}
-  var eqRawPoints = (d.equityCurve || []).map(function(e) { return { dt: parseEqTime(e.time), cum: e.cum, time: e.time }; }).filter(function(p) { return p.dt; });
+  var eqRawPoints = (d.equityCurve || []).map(function(e) { return { dt: parseEqTime(e.time), cum: e.cum, time: e.time, ea: e.ea, me: e.me }; }).filter(function(p) { return p.dt; });
+  var eqHasSplit = eqRawPoints.length && typeof eqRawPoints[eqRawPoints.length - 1].ea === "number";   // 2026-11-05: lijnen EA vs Rob
   var eqWindowVal = "all";
 
   function eqPointBg(i, maxDDIdx, lastIdx) { if (i === maxDDIdx) return COL_RED; if (i === lastIdx) return "#fff"; return COL_ACCENT; }
@@ -577,14 +578,18 @@ function render(d) {
     // Aggregeren: per bucket (dag/week/maand) de LAATSTE stand in die periode bewaren - dat is
     // logisch de "eindstand" van die periode, net als hoe je een aandelenkoers per dag afsluit.
     var bucketMap = {};
+    var bucketEA = {}, bucketMe = {};
     var bucketOrder = [];
     points.forEach(function(p) {
       var key = eqBucketKeyAndLabel(p.dt, gran);
       if (!(key in bucketMap)) bucketOrder.push(key);
       bucketMap[key] = p.cum;
+      bucketEA[key] = p.ea; bucketMe[key] = p.me;
     });
     var eqLabels = bucketOrder;
     var eqValues = bucketOrder.map(function(k) { return bucketMap[k]; });
+    var eqEA = bucketOrder.map(function(k) { return bucketEA[k]; });
+    var eqMe = bucketOrder.map(function(k) { return bucketMe[k]; });
 
     var eqCurrent = eqValues.length ? eqValues[eqValues.length - 1] : 0;
     var eqEl = document.getElementById("eqCurrentVal");
@@ -626,7 +631,9 @@ function render(d) {
     var legendHtml = '<span><span class="dot" style="background:' + COL_RED + '"></span>Biggest pullback: ' + fmtUsd(pullbackVal) +
       pullbackLabelHtml + '</span>' +
       ddPctHtml +
-      '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>';
+      '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>' +
+      (eqHasSplit && eqEA.length ? '<span><span class="dot" style="background:' + COL_GREEN + '"></span>EA: ' + fmtUsd(eqEA[eqEA.length - 1]) + '</span>' +
+        '<span><span class="dot" style="background:#f5a623"></span>My trades: ' + fmtUsd(eqMe[eqMe.length - 1]) + '</span>' : '');
     document.getElementById("eqLegend").innerHTML = eqValues.length ? legendHtml : "";
 
     // Puntjes-stijl (op verzoek Rob - "combinatie" van kleine stipjes op elk punt EN twee
@@ -680,13 +687,16 @@ function render(d) {
           pointBorderColor: function(context) { return eqPointBorder(context.dataIndex, maxDDIdx, eqLastIdx); },
           pointBorderWidth: function(context) { return context.dataIndex === eqLastIdx ? 2 : 1; },
           tension: 0.15, borderWidth: 2.5
-        }]
+        }].concat(eqHasSplit ? [
+          { data: eqEA, borderColor: COL_GREEN, backgroundColor: "transparent", fill: false, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, borderWidth: 1.5, label: "EA" },
+          { data: eqMe, borderColor: "#f5a623", backgroundColor: "transparent", fill: false, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, borderWidth: 1.5, borderDash: [5, 4], label: "My trades" }
+        ] : [])
       },
       plugins: [eqGuideLinePlugin],
       options: {
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { title: function(items) { return items.length ? items[0].label : ""; }, label: function(item) { return fmtUsd(item.parsed.y); } } }
+          tooltip: { callbacks: { title: function(items) { return items.length ? items[0].label : ""; }, label: function(item) { return (item.dataset.label ? item.dataset.label + ": " : "Total: ") + fmtUsd(item.parsed.y); } } }
         },
         scales: {
           x: { ticks: { color: COL_SUB, font: { size: 10 }, autoSkip: true, maxTicksLimit: 6 }, grid: { display: false } },
