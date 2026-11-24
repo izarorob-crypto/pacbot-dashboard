@@ -204,10 +204,40 @@ var REASON_LABELS = {
 };
 function reasonLabel(token) { return REASON_LABELS[token] || token; }
 
+// 2026-11-24: data.json is versleuteld (PBKDF2-SHA256 + AES-256-CBC). Wachtwoord 1x invullen, daarna onthouden op dit toestel.
+var DASH_KEY = "aurumDashPass";
+function b64ToBytes(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+function decryptDash(e, pass) {
+  var te = new TextEncoder();
+  return crypto.subtle.importKey("raw", te.encode(pass), "PBKDF2", false, ["deriveKey"])
+    .then(function(km) { return crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64ToBytes(e.salt), iterations: e.iter, hash: "SHA-256" }, km, { name: "AES-CBC", length: 256 }, false, ["decrypt"]); })
+    .then(function(k) { return crypto.subtle.decrypt({ name: "AES-CBC", iv: b64ToBytes(e.iv) }, k, b64ToBytes(e.ct)); })
+    .then(function(buf) { return JSON.parse(new TextDecoder().decode(buf)); });
+}
+function safeRender(d) { try { render(d); } catch (x) { dashFail("Dashboard error while drawing: " + x.message); } }
+function dashFail(msg) { var el = document.getElementById("err"); el.textContent = msg; el.style.display = "block"; document.getElementById("updated").textContent = ""; }
+function askAndDecrypt(e, label) {
+  var p = window.prompt(label + " (case-sensitive)");
+  if (p) { p = p.trim(); }
+  if (!p) { dashFail("Dashboard locked - reload the page to enter the password."); return; }
+  decryptDash(e, p).then(function(d) { try { localStorage.setItem(DASH_KEY, p); } catch (x) {} safeRender(d); },
+                         function() { askAndDecrypt(e, "Wrong password - try again:"); });
+}
 fetch("data.json?t=" + Date.now())
   .then(function(r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
-  .then(function(d) { render(d); })
-  .catch(function(e) { document.getElementById("err").style.display = "block"; document.getElementById("updated").textContent = ""; });
+  .then(function(d) {
+    if (d && d.nokey) { dashFail("Dashboard locked: no password set on the VPS yet (C:\\Scripts\\PacBot_Dashboard_Key.txt)."); return; }
+    if (d && d.ct) {
+      var saved = null; try { saved = localStorage.getItem(DASH_KEY); } catch (x) {}
+      if (saved) {
+        decryptDash(d, saved).then(function(dd) { safeRender(dd); },
+                                   function() { try { localStorage.removeItem(DASH_KEY); } catch (x) {} askAndDecrypt(d, "Dashboard password:"); });
+      } else { askAndDecrypt(d, "Dashboard password:"); }
+      return;
+    }
+    render(d);
+  })
+  .catch(function(e) { dashFail("Could not load data.json - try again in a few minutes (the script writes an update every 3 min)."); });
 
 function render(d) {
   // 2026-09-13 (taak #140 - Rob zag live P/L in MT4 afwijken van het dashboard): "updated"
