@@ -174,7 +174,7 @@ var REASON_LABELS = {
   "unrecorded": "Unrecorded",
   "cross-credit": "Cross-Credit Reduce",
   "stuck-stack-ease": "Stuck-Stack Ease",
-  "fastpass": "FastPass",
+  "fastpass": "Midas",
   "manual-extern-retroactief": "Manual Close (Retroactive)",
   "manual-extern": "Manual Close (EA position)",
   "manual-own": "Manual Trade (own)",
@@ -674,7 +674,7 @@ function render(d) {
       '<span><span class="dot" style="background:#fff;border:2px solid ' + COL_ACCENT + '"></span>Now: ' + fmtUsd(eqCurrent) + '</span>' +
       (eqHasSplit && eqEA.length ? '<span><span class="dot" style="background:' + COL_GREEN + '"></span>EA: ' + fmtUsd(eqEA[eqEA.length - 1]) + '</span>' +
         '<span><span class="dot" style="background:#f5a623"></span>My trades: ' + fmtUsd(eqMe[eqMe.length - 1]) + '</span>' +
-        (eqHasFp ? '<span><span class="dot" style="background:#38bdf8"></span>FastPass: ' + fmtUsd(eqFp[eqFp.length - 1]) + '</span>' : '') : '');
+        (eqHasFp ? '<span><span class="dot" style="background:#38bdf8"></span>Midas: ' + fmtUsd(eqFp[eqFp.length - 1]) + '</span>' : '') : '');
     document.getElementById("eqLegend").innerHTML = eqValues.length ? legendHtml : "";
 
     // Puntjes-stijl (op verzoek Rob - "combinatie" van kleine stipjes op elk punt EN twee
@@ -732,7 +732,7 @@ function render(d) {
           { data: eqEA, borderColor: COL_GREEN, backgroundColor: "transparent", fill: false, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, borderWidth: 1.5, label: "EA" },
           { data: eqMe, borderColor: "#f5a623", backgroundColor: "transparent", fill: false, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, borderWidth: 1.5, borderDash: [5, 4], label: "My trades" }
         ].concat(eqHasFp ? [
-          { data: eqFp, borderColor: "#38bdf8", backgroundColor: "transparent", fill: false, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, borderWidth: 1.5, borderDash: [2, 3], label: "FastPass" }
+          { data: eqFp, borderColor: "#38bdf8", backgroundColor: "transparent", fill: false, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, borderWidth: 1.5, borderDash: [2, 3], label: "Midas" }
         ] : []) : [])
       },
       plugins: [eqGuideLinePlugin],
